@@ -1,0 +1,5 @@
+/node_modules
+/bridges/bitfun/node_modules
+/packages/core/dist
+/packages/core/node_modules
+/packages/protocol/dist

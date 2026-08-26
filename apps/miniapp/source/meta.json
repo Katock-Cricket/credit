@@ -1,0 +1,24 @@
+{
+  "name": "credit",
+  "version": "0.1.0",
+  "description": "CREDIT — Developer-AI interaction reliability tracker (P0: collection bridge)",
+  "permissions": {
+    "fs": {
+      "write": ["{home}/.bitfun/credit"],
+      "read": ["{home}/.bitfun/credit"]
+    },
+    "shell": {
+      "exec": ["git"]
+    },
+    "ai": false,
+    "net": false,
+    "node": {
+      "enabled": false
+    }
+  },
+  "entry": {
+    "worker": "worker.js"
+  },
+  "i18n": ["zh-CN", "en-US"],
+  "theme": ["light", "dark"]
+}

@@ -1,0 +1,6 @@
+packages:
+  - "packages/*"
+  - "bridges/*"
+  - "apps/*"
+allowBuilds:
+  esbuild: set this to true or false

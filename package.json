@@ -1,0 +1,21 @@
+{
+  "name": "credit-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CREDIT monorepo (pnpm workspace): protocol + core + bridges/bitfun + apps/miniapp",
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r --filter \"./packages/*\" build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "pnpm -r exec tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
