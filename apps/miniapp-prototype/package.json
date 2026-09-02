@@ -3,11 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "P1 三按钮原型（决策 D-005）：仓内独立可运行，不依赖 Bitfun 桌面环境",
+  "description": "P1 三按钮原型（决策 D-005）+ P2-pre 过程可视化（决策 D-012）：仓内独立可运行，不依赖 Bitfun 桌面环境",
   "scripts": {
     "dev": "node server.mjs"
   },
   "dependencies": {
-    "@credit/core": "workspace:*"
+    "@credit/core": "workspace:*",
+    "@credit/analyzer": "workspace:*"
   }
 }

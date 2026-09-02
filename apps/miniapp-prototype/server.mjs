@@ -12,6 +12,7 @@
  * 环境变量：
  *   CREDIT_PROTO_PORT  端口（默认 5178）
  *   CREDIT_HOME        数据根目录（默认 <home>/.bitfun/credit）
+ *   OPENAI_API_KEY     外部 LLM 密钥（可选；不设则过程建模走规则降级路径，D-023）
  */
 import http from "node:http";
 import fsp from "node:fs/promises";
@@ -19,6 +20,14 @@ import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { createBridge } from "@credit/core";
+import {
+  buildTaskGraph,
+  createDefaultAnalyticRegistry,
+  createOpenAILlmPort,
+  createNullLlmPort,
+  createMemoryCache,
+  DEFAULT_LLM_CONFIG,
+} from "@credit/analyzer";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.CREDIT_PROTO_PORT ?? 5178);
@@ -87,6 +96,146 @@ const api = {
   },
 };
 
+// ─────────────── P2-pre：过程建模与可视化 API（决策 D-012 / D-023）───────────────
+
+/** 读取 <ROOT>/config.json 的 llm 段（缺失则用默认配置） */
+async function loadLlmConfig() {
+  try {
+    const raw = await fsp.readFile(path.join(ROOT, "config.json"), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed?.llm) return { ...DEFAULT_LLM_CONFIG, ...parsed.llm };
+  } catch {
+    /* 缺失/坏文件 → 用默认配置 */
+  }
+  return { ...DEFAULT_LLM_CONFIG };
+}
+
+let llmPortPromise = null;
+async function getLlmPort() {
+  if (!llmPortPromise) {
+    llmPortPromise = (async () => {
+      const llmCfg = await loadLlmConfig();
+      if (llmCfg.provider === "openai-compatible") {
+        const port = createOpenAILlmPort({
+          baseUrl: llmCfg.openaiCompatible.baseUrl,
+          model: llmCfg.openaiCompatible.model,
+          apiKeyEnv: llmCfg.openaiCompatible.apiKeyEnv,
+          timeoutMs: llmCfg.timeoutMs,
+          retry: llmCfg.retryPerModel,
+          cache: llmCfg.cacheEnabled ? createMemoryCache() : null,
+        });
+        const ok = await port.isAvailable();
+        console.log(
+          ok
+            ? `[credit] LLM: openai-compatible ready (model=${llmCfg.openaiCompatible.model})`
+            : `[credit] LLM: 未检测到 ${llmCfg.openaiCompatible.apiKeyEnv}，过程建模走规则降级路径`,
+        );
+        return ok ? port : createNullLlmPort();
+      }
+      return createNullLlmPort();
+    })();
+  }
+  return llmPortPromise;
+}
+
+const analyticRegistry = createDefaultAnalyticRegistry();
+
+async function readBehaviors(prId) {
+  const file = path.join(ROOT, "behaviors", `${prId}.jsonl`);
+  const text = await fsp.readFile(file, "utf8");
+  return text
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => {
+      try {
+        return JSON.parse(l);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0));
+}
+
+const prApi = {
+  /** 历史 PR 列表（按 behaviors 文件 mtime 倒序） */
+  async list() {
+    const dir = path.join(ROOT, "behaviors");
+    let files = [];
+    try {
+      files = (await fsp.readdir(dir)).filter((f) => f.endsWith(".jsonl"));
+    } catch {
+      return { ok: true, items: [] };
+    }
+    const items = [];
+    for (const f of files) {
+      const prId = f.replace(/\.jsonl$/, "");
+      const st = await fsp.stat(path.join(dir, f));
+      let count = 0;
+      try {
+        const text = await fsp.readFile(path.join(dir, f), "utf8");
+        count = text.split("\n").filter(Boolean).length;
+      } catch {
+        /* ignore */
+      }
+      items.push({ prId, size: st.size, mtimeMs: st.mtimeMs, behaviorCount: count });
+    }
+    items.sort((a, b) => b.mtimeMs - a.mtimeMs);
+    return { ok: true, items };
+  },
+
+  /** 过程建模结果：命中 tasks/<prId>.json 缓存则直接返回，否则计算并落盘 */
+  async graph(prId, query) {
+    if (!prId) return { ok: false, error: "missing prId" };
+    const cacheFile = path.join(ROOT, "tasks", `${prId}.json`);
+    const force = query?.get("force") === "1";
+
+    if (!force) {
+      try {
+        const cached = JSON.parse(await fsp.readFile(cacheFile, "utf8"));
+        return { ok: true, graph: cached, cached: true, analytics: analyticRegistry.runAll(cached, []) };
+      } catch {
+        /* 无缓存 → 计算 */
+      }
+    }
+
+    const behaviors = await readBehaviors(prId);
+    if (behaviors.length === 0) return { ok: false, error: "no behaviors for this prId" };
+
+    const llm = await getLlmPort();
+    const llmCfg = await loadLlmConfig();
+    const graph = await buildTaskGraph({
+      prId,
+      behaviors,
+      llm,
+      llmModel: llmCfg.provider === "openai-compatible" ? llmCfg.openaiCompatible.model : null,
+    });
+
+    try {
+      await fsp.mkdir(path.join(ROOT, "tasks"), { recursive: true });
+      const tmp = `${cacheFile}.tmp-${process.pid}`;
+      await fsp.writeFile(tmp, JSON.stringify(graph, null, 2), "utf8");
+      await fsp.rename(tmp, cacheFile);
+    } catch (e) {
+      console.warn(`[credit] 写 tasks 缓存失败：${String(e)}`);
+    }
+
+    return {
+      ok: true,
+      graph,
+      cached: false,
+      analytics: analyticRegistry.runAll(graph, behaviors),
+    };
+  },
+
+  /** 按需拉取指定 Behavior 明细（点击 Task 展开时用，避免全量传输） */
+  async behaviors(prId, query) {
+    const ids = new Set((query?.get("ids") ?? "").split(",").filter(Boolean));
+    const all = await readBehaviors(prId);
+    return { ok: true, items: ids.size > 0 ? all.filter((b) => ids.has(b.id)) : all };
+  },
+};
+
 function json(res, code, data) {
   const body = JSON.stringify(data);
   res.writeHead(code, { "content-type": "application/json; charset=utf-8" });
@@ -101,16 +250,50 @@ const server = http.createServer(async (req, res) => {
     /* ignore */
   }
   try {
+    // 浏览器默认请求，无需资源 → 直接空响应，避免控制台 404 噪声
+    if (pathname === "/favicon.ico") {
+      res.writeHead(204);
+      return res.end();
+    }
     if (pathname.startsWith("/api/credit/")) {
       const action = pathname.replace("/api/credit/", "");
       const fn = api[action];
       if (typeof fn !== "function") return json(res, 404, { ok: false, error: `unknown action: ${action}` });
       return json(res, 200, await fn());
     }
-    if (pathname === "/" || pathname === "/index.html") {
-      const html = await fsp.readFile(path.join(HERE, "index.html"), "utf8");
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      return res.end(html);
+
+    // P2-pre：过程建模 API —— /api/pr/<prId>/graph | /behaviors，列表为 /api/pr/list
+    if (pathname.startsWith("/api/pr/")) {
+      const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+      const rest = pathname.replace("/api/pr/", "");
+      if (rest === "list") return json(res, 200, await prApi.list());
+      const seg = rest.split("/").filter(Boolean).map(decodeURIComponent);
+      const [prId, action = "graph"] = seg;
+      const fn = prApi[action];
+      if (typeof fn !== "function") {
+        return json(res, 404, { ok: false, error: `unknown pr action: ${action}` });
+      }
+      const out = await fn(prId, url.searchParams);
+      return json(res, out.ok ? 200 : 400, out);
+    }
+
+    // 静态文件（index.html / style.css / ui.js / ui/*.js）—— 限制在应用目录内
+    const staticPath = pathname === "/" || pathname === "/index.html" ? "/index.html" : pathname;
+    if (/^\/(?:index\.html|ui\/[\w-]+\.js|[\w-]+\.(?:css|js))$/.test(staticPath)) {
+      const abs = path.join(HERE, staticPath);
+      if (!abs.startsWith(HERE)) return json(res, 403, { ok: false, error: "forbidden" });
+      try {
+        const body = await fsp.readFile(abs, "utf8");
+        const type = staticPath.endsWith(".css")
+          ? "text/css"
+          : staticPath.endsWith(".js")
+            ? "text/javascript"
+            : "text/html";
+        res.writeHead(200, { "content-type": `${type}; charset=utf-8` });
+        return res.end(body);
+      } catch {
+        /* 落到 404 */
+      }
     }
     res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
     return res.end("not found");

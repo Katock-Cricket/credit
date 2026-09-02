@@ -3,189 +3,127 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>CREDIT 记录控制（P1 原型）</title>
-    <style>
-      :root {
-        color-scheme: dark;
-        --bg: #14161a;
-        --panel: #1c1f26;
-        --border: #2a2f3a;
-        --text: #e6e8ee;
-        --muted: #9aa3b2;
-        --accent: #4c8dff;
-        --danger: #e0574a;
-        --ok: #3fb950;
-      }
-      * { box-sizing: border-box; }
-      body {
-        margin: 0;
-        padding: 24px;
-        background: var(--bg);
-        color: var(--text);
-        font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
-      }
-      .wrap { max-width: 720px; margin: 0 auto; }
-      h1 { font-size: 18px; margin: 0 0 4px; }
-      .sub { color: var(--muted); font-size: 12px; margin-bottom: 20px; }
-      .panel {
-        background: var(--panel);
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        padding: 16px;
-        margin-bottom: 16px;
-      }
-      .row { display: flex; gap: 10px; flex-wrap: wrap; }
-      button {
-        flex: 1 1 160px;
-        padding: 12px 14px;
-        border-radius: 8px;
-        border: 1px solid var(--border);
-        background: #232833;
-        color: var(--text);
-        font-size: 14px;
-        cursor: pointer;
-      }
-      button:hover:not(:disabled) { border-color: var(--accent); }
-      button:disabled { opacity: 0.45; cursor: not-allowed; }
-      button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-      button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
-      .kv { display: grid; grid-template-columns: 110px 1fr; gap: 6px 12px; font-size: 13px; }
-      .kv dt { color: var(--muted); }
-      .kv dd { margin: 0; font-variant-numeric: tabular-nums; }
-      .state { font-weight: 600; }
-      .state.recording { color: var(--ok); }
-      .state.committed { color: var(--accent); }
-      .state.idle { color: var(--muted); }
-      .banner {
-        border-radius: 8px;
-        padding: 10px 12px;
-        margin-bottom: 16px;
-        font-size: 13px;
-        border: 1px solid var(--border);
-        background: #1a2332;
-      }
-      .banner.warn { border-color: #6b5420; background: #241f12; }
-      .banner:empty { display: none; }
-      .msg { color: var(--muted); font-size: 12px; min-height: 18px; margin-top: 10px; }
-      code { background: #0e1014; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
-    </style>
+    <title>CREDIT · 过程建模原型</title>
+    <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
-    <div class="wrap">
-      <h1>CREDIT 记录控制</h1>
-      <div class="sub">P1 三按钮原型（决策 D-005）· 仓内独立运行，不依赖 Bitfun 桌面环境</div>
-
-      <div id="banner" class="banner"></div>
-
-      <div class="panel">
-        <div class="row">
-          <button id="btn-start" class="primary">开始记录</button>
-          <button id="btn-finish">结束并保存</button>
-          <button id="btn-reset" class="danger">放弃本轮记录</button>
+    <div id="app">
+      <header class="header">
+        <div>
+          <h1 data-i18n="appTitle">CREDIT</h1>
+          <div class="sub" data-i18n="appSub">过程建模与可视化原型 · P2-pre</div>
         </div>
-        <div class="msg" id="msg"></div>
-      </div>
-
-      <div class="panel">
-        <dl class="kv">
-          <dt>状态</dt>
-          <dd><span id="state" class="state idle">-</span></dd>
-          <dt>prId</dt>
-          <dd><code id="prid">-</code></dd>
-          <dt>行为序号</dt>
-          <dd id="seq">0</dd>
-          <dt>事件计数</dt>
-          <dd id="counts">-</dd>
-          <dt>治理统计</dt>
-          <dd id="stats">-</dd>
-          <dt>数据目录</dt>
-          <dd><code id="dirs">-</code></dd>
-        </dl>
-      </div>
-
-      <div class="panel">
-        <div class="row">
-          <button id="btn-recover">模拟重启（重跑恢复）</button>
-          <button id="btn-refresh">刷新状态</button>
+        <div class="row" style="flex: none">
+          <button
+            id="btn-theme"
+            style="flex: none; min-width: 64px"
+            title="light / dark"
+          >
+            Dark
+          </button>
+          <button
+            id="btn-locale"
+            style="flex: none; min-width: 48px"
+            title="zh-CN / en-US"
+          >
+            EN
+          </button>
         </div>
-      </div>
+      </header>
+
+      <nav class="tabs" role="tablist">
+        <button class="tab" role="tab" data-tab="control" aria-selected="true">
+          <span data-i18n="tabControl">Control</span>
+        </button>
+        <button class="tab" role="tab" data-tab="history" aria-selected="false">
+          <span data-i18n="tabHistory">History PRs</span>
+        </button>
+      </nav>
+
+      <!-- ── Control Tab（P1 原样保留） ── -->
+      <section id="view-control" class="view" role="tabpanel">
+        <div id="banner" class="banner"></div>
+
+        <div class="panel">
+          <div class="row">
+            <button id="btn-start" class="primary" data-i18n="btnStart">
+              开始记录
+            </button>
+            <button id="btn-finish" data-i18n="btnFinish">结束并保存</button>
+            <button id="btn-reset" class="danger" data-i18n="btnReset">
+              放弃本轮记录
+            </button>
+          </div>
+          <div class="msg" id="msg"></div>
+        </div>
+
+        <div class="panel">
+          <dl class="kv">
+            <dt data-i18n="lblState">状态</dt>
+            <dd><span id="state" class="state idle">-</span></dd>
+            <dt data-i18n="lblPrId">prId</dt>
+            <dd><code id="prid">-</code></dd>
+            <dt data-i18n="lblSeq">行为序号</dt>
+            <dd id="seq">0</dd>
+            <dt data-i18n="lblCounts">事件计数</dt>
+            <dd id="counts">-</dd>
+            <dt data-i18n="lblStats">治理统计</dt>
+            <dd id="stats">-</dd>
+            <dt data-i18n="lblDirs">数据目录</dt>
+            <dd><code id="dirs">-</code></dd>
+          </dl>
+        </div>
+
+        <div class="panel">
+          <div class="row">
+            <button id="btn-recover" data-i18n="btnRecover">
+              模拟重启（重跑恢复）
+            </button>
+            <button id="btn-refresh" data-i18n="btnRefresh">刷新状态</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── History PRs Tab（P2-pre 新增） ── -->
+      <section id="view-history" class="view" role="tabpanel" hidden>
+        <div class="history">
+          <aside>
+            <div class="panel">
+              <h2 data-i18n="lblPrList">历史 PR</h2>
+              <div id="pr-list" class="pr-list"></div>
+            </div>
+          </aside>
+
+          <main class="gantt-wrap">
+            <div class="panel">
+              <h2 data-i18n="lblTimeline">过程时间线</h2>
+              <div id="gantt-host"></div>
+              <div class="hint" data-i18n="hintClickTask">
+                点击 Task 块查看详情；色深表示 AI 行为占比。
+              </div>
+              <div class="row" style="margin-top: 12px">
+                <button id="recompute" style="flex: none; min-width: 140px" hidden>
+                  重新计算（忽略缓存）
+                </button>
+              </div>
+            </div>
+
+            <div class="panel">
+              <h2 data-i18n="lblAnalytics">过程分析</h2>
+              <div id="analytics" class="analytics"></div>
+            </div>
+
+            <div class="panel">
+              <h2 data-i18n="lblDiagnostics">切分自检</h2>
+              <div id="diagnostics"></div>
+            </div>
+
+            <div id="detail" class="detail" hidden></div>
+          </main>
+        </div>
+      </section>
     </div>
 
-    <script>
-      const $ = (id) => document.getElementById(id);
-      const ACTION_LABEL = {
-        resume: "自动接续上轮未提交记录",
-        rewind: "上轮停在 computing，已回退为 recording",
-        wait: "无进行中记录，等待开始",
-        degraded: "会话文件异常，已安全降级为 idle（未删除任何数据）",
-        none: "无历史会话",
-      };
-
-      async function call(action, opts = {}) {
-        const res = await fetch(`/api/credit/${action}`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-        });
-        const data = await res.json();
-        if (!data.ok) throw new Error(data.error || "request failed");
-        return data;
-      }
-
-      function render(data) {
-        const s = data.session;
-        const stateEl = $("state");
-        stateEl.textContent = s ? s.state : "idle";
-        stateEl.className = `state ${s ? s.state : "idle"}`;
-        $("prid").textContent = s?.prId || "-";
-        $("seq").textContent = s?.seq ?? 0;
-        $("counts").textContent = s ? JSON.stringify(s.counts || {}) : "-";
-        const st = data.stats || {};
-        $("stats").textContent = `输出 ${st.emitted ?? 0} · 基线 ${st.baseline ?? 0} · 折叠 ${st.merged ?? 0}`;
-        $("dirs").textContent = data.dirs?.rootDir || "-";
-
-        const banner = $("banner");
-        const r = data.recover;
-        if (r && (r.action === "resume" || r.action === "rewind" || r.action === "degraded")) {
-          banner.className = "banner warn";
-          banner.textContent = `${ACTION_LABEL[r.action] || r.action}${r.prId ? `（prId=${r.prId}）` : ""}`;
-        } else {
-          banner.className = "banner";
-          banner.textContent = "";
-        }
-
-        const has = !!s && s.state === "recording";
-        $("btn-finish").disabled = !has;
-        $("btn-reset").disabled = !s || s.state === "idle";
-        $("btn-start").disabled = has;
-      }
-
-      async function refresh() {
-        const res = await fetch("/api/credit/status");
-        render(await res.json());
-      }
-
-      async function act(action, okMsg, confirmMsg) {
-        if (confirmMsg && !confirm(confirmMsg)) return;
-        $("msg").textContent = "处理中…";
-        try {
-          const data = await call(action);
-          $("msg").textContent = okMsg + (data.session?.prId ? `（${data.session.prId}）` : "");
-          await refresh();
-        } catch (e) {
-          $("msg").textContent = `失败：${e.message}`;
-          await refresh();
-        }
-      }
-
-      $("btn-start").onclick = () => act("start", "已开始记录");
-      $("btn-finish").onclick = () => act("finish", "已结束并保存");
-      $("btn-reset").onclick = () =>
-        act("reset", "已放弃本轮记录（数据文件已删除）", "确认放弃本轮记录？本轮已采集的事件将被删除且不可恢复。");
-      $("btn-recover").onclick = () => act("recover", "已重跑断点恢复");
-      $("btn-refresh").onclick = () => refresh();
-
-      refresh();
-      setInterval(refresh, 3000);
-    </script>
+    <script type="module" src="/ui.js"></script>
   </body>
 </html>

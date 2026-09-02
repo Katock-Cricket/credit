@@ -22,6 +22,9 @@ importers:
 
   apps/miniapp-prototype:
     dependencies:
+      '@credit/analyzer':
+        specifier: workspace:*
+        version: link:../../packages/analyzer
       '@credit/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -34,6 +37,16 @@ importers:
       '@credit/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+    devDependencies:
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+
+  packages/analyzer:
+    dependencies:
+      '@credit/protocol':
+        specifier: file:../protocol
+        version: link:../protocol
     devDependencies:
       typescript:
         specifier: ^5.6.0

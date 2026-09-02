@@ -13,6 +13,7 @@ import { BehaviorStore, type StoreOptions } from "./store/jsonl-store.js";
 import { SessionManager, makePrId, type RecoverReport } from "./session/session-manager.js";
 import { CreditLogger, type LoggerOptions } from "./logging/logger.js";
 import { toBehavior, type IngressConfig } from "./ingress/normalize.js";
+import { createAgentEditTracker } from "./ingress/agent-edit-tracker.js";
 import {
   IngressGovernor,
   type GovernorStats,
@@ -26,6 +27,8 @@ export * from "./session/session-manager.js";
 export * from "./logging/logger.js";
 export * from "./ingress/normalize.js";
 export * from "./ingress/governor.js";
+export * from "./ingress/agent-edit-tracker.js";
+export * from "./replay.js";
 export * from "./config.js";
 export * from "./git-port.js";
 export * from "./identify/file-role.js";
@@ -82,36 +85,12 @@ export function createBridge(opts: BridgeOptions = {}): BridgeSink {
   const budgetMs = opts.budgetMs ?? 1;
   const git = opts.gitPort ?? nullGitPort;
 
-  // —— agent 编辑回溯关联（P0 §R-actor，P1 沿用；窗口来自 config）——
+  // —— agent 编辑回溯关联（P0 §R-actor）——
   // 前端 textChanged 由 agent 写盘 → CodeEditor 异步 reload 触发，往往晚于 agentToolUse，
   // 导致实时 source 判定失效。此处维护"agent 编辑过的文件 + 时间"，textChanged 到达时
   // 回溯窗口匹配，命中则强制 source="agent"（actor=ai）。
-  const recentAgentEdits = new Map<string, number[]>(); // normalizedUri -> [ts,...]
-  const normUri = (u: string): string =>
-    String(u ?? "")
-      .replace(/^file:\/\//i, "")
-      .replace(/\\/g, "/")
-      .toLowerCase()
-      .replace(/\/+$/, "");
-
-  const recordAgentEdit = (uri: string, ts: number) => {
-    const k = normUri(uri);
-    if (!k) return;
-    const arr = recentAgentEdits.get(k) ?? [];
-    arr.push(ts);
-    const cutoff = ts - cfg.agentEditLookupMs;
-    recentAgentEdits.set(
-      k,
-      arr.filter((t) => t >= cutoff),
-    );
-  };
-
-  const isAgentEditedFile = (uri: string, ts: number): boolean => {
-    const arr = recentAgentEdits.get(normUri(uri));
-    if (!arr || arr.length === 0) return false;
-    const cutoff = ts - cfg.agentEditLookupMs;
-    return arr.some((t) => t >= cutoff);
-  };
+  // P2-pre：抽为独立模块，与 `replayRaw()` 共用同一套判定（见 ingress/agent-edit-tracker.ts）。
+  const agentEdits = createAgentEditTracker(cfg);
 
   const governor = new IngressGovernor({
     cfg,
@@ -142,10 +121,17 @@ export function createBridge(opts: BridgeOptions = {}): BridgeSink {
         logger.count(`${cfg.source}:dropped:notRecording`);
         return;
       }
+      // 先探测：归一化层判定丢弃的事件（D-019：空 cmd 的 terminalCommand）
+      // 不消耗 seq —— 否则 Behavior id 出现空洞，影响"seq 连续"的冒烟断言。
+      const probe = toBehavior(out, s.prId, 0, cfg);
+      if (!probe) {
+        logger.count(`${cfg.source}:dropped:emptyCmd`);
+        return;
+      }
       const seq = session.nextSeq();
-      const behavior = toBehavior(out, s.prId, seq, cfg);
-      if (mergedCount > 1) behavior.context.mergedCount = mergedCount;
-      store.append(s.prId, behavior);
+      probe.id = `${s.prId}-${seq}`;
+      if (mergedCount > 1) probe.context.mergedCount = mergedCount;
+      store.append(s.prId, probe);
       session.bumpCount(cfg.source);
     } catch (e) {
       // 单条输出失败不影响后续事件（§5 旁路纪律）
@@ -208,29 +194,8 @@ export function createBridge(opts: BridgeOptions = {}): BridgeSink {
 
         // 2) agent 工具编辑登记（agentToolUse 含文件 target）
         if (evt.type === "agentToolUse") {
-          const inp = (evt as { toolInput?: unknown }).toolInput;
-          const uriCandidates: string[] = [];
-          if (inp && typeof inp === "object") {
-            for (const k of [
-              "file_path",
-              "filePath",
-              "filepath",
-              "target_file",
-              "targetFile",
-              "path",
-              "filename",
-              "target",
-              "file",
-              "abs_path",
-            ]) {
-              const v = (inp as Record<string, unknown>)[k];
-              if (typeof v === "string" && (v.includes("/") || v.includes("\\"))) {
-                uriCandidates.push(v);
-              }
-            }
-          }
           const ts = (evt as { ts?: number }).ts ?? Date.now();
-          for (const u of uriCandidates) recordAgentEdit(u, ts);
+          agentEdits.recordFromToolUse((evt as { toolInput?: unknown }).toolInput, ts);
         }
 
         // 3) textChanged 回溯关联：近期被 agent 编辑过 → 强制 source=agent（actor=ai）
@@ -238,7 +203,7 @@ export function createBridge(opts: BridgeOptions = {}): BridgeSink {
         if (
           evt.type === "textChanged" &&
           (evt as { source?: string }).source !== "agent" &&
-          isAgentEditedFile(
+          agentEdits.isAgentEdited(
             (evt as { uri?: string }).uri ?? "",
             (evt as { ts?: number }).ts ?? Date.now(),
           )
