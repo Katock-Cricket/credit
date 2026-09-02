@@ -39,12 +39,18 @@ export interface SelectionChangedEvent {
   dwellMs?: number | null;
   ts: Timestamp;
   fidelity?: Fidelity;
+  /**
+   * B-012：行号/列号为**近似值**。TipTap 是所见即所得 + 软换行，没有真实行号，
+   * 此处 `line` 为顶层块索引（blockIndex）。下游按降级处理（风险 R7）。
+   */
+  approximate?: boolean;
 }
 
 export interface ActiveEditorChangedEvent {
   type: "activeEditorChanged";
   uri: string;
-  editorKind: "monaco" | "tiptap";
+  /** B-012：`textarea` = markdown 源码模式；`preview` = 预览模式（纯渲染、无编辑器实例） */
+  editorKind: "monaco" | "tiptap" | "textarea" | "preview";
   ts: Timestamp;
   fidelity?: Fidelity;
 }
@@ -81,9 +87,14 @@ export interface TextScrolledEvent {
   type: "textScrolled";
   uri: string;
   viewport: { firstLine: number; lastLine: number };
-  editorKind: "monaco" | "tiptap";
+  editorKind: "monaco" | "tiptap" | "textarea" | "preview";
   ts: Timestamp;
   fidelity?: Fidelity;
+  /**
+   * B-012：`viewport` 为**近似值**。TipTap 无真实行号，`firstLine/lastLine`
+   * 为可见的顶层块索引区间（blockIndex）。下游按降级处理（风险 R7）。
+   */
+  approximate?: boolean;
 }
 
 /** CREDIT 扩展事件（P0 新增；字段超集，前端不可得置 null） */

@@ -12,7 +12,9 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "declaration": true,
-    "sourceMap": true,
+    // 关闭 sourceMap：dist 会被复制到 Bitfun 的 pnpm 副本，.map 里的相对 sources 路径
+    // 在那里不存在，dev 期会刷 "Sourcemap ... points to missing source files" 警告。
+    "sourceMap": false,
     "verbatimModuleSyntax": false,
     "isolatedModules": true,
     "resolveJsonModule": true,

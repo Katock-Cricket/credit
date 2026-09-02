@@ -15,6 +15,13 @@ export interface FsPort {
   readFile(file: string): Promise<string>;
   rename(from: string, to: string): Promise<void>;
   homedir(): string;
+  /**
+   * 可选能力：删除文件（P1 `reset` 放弃本轮记录时清理数据文件用）。
+   * 未提供时 reset 降级为"仅置 idle + log"，不抛错（§5 桥旁路纪律）。
+   */
+  unlink?(file: string): Promise<void>;
+  /** 可选能力：判断文件是否存在 */
+  exists?(file: string): boolean;
 }
 
 function isNode(): boolean {
@@ -33,6 +40,8 @@ export async function createNodeFsPort(): Promise<FsPort> {
     writeFile: (file: string, data: string) => nodeFs.promises.writeFile(file, data, "utf8"),
     readFile: (file: string) => nodeFs.promises.readFile(file, "utf8"),
     rename: (from: string, to: string) => nodeFs.promises.rename(from, to),
+    unlink: (file: string) => nodeFs.promises.unlink(file),
+    exists: (file: string) => nodeFs.existsSync(file),
     homedir: () => nodeOs.homedir(),
   };
 }
@@ -51,15 +60,25 @@ export const nodeFsPort: FsPort = (() => {
     if (!isNode()) {
       throw new Error("[credit] nodeFsPort unavailable in browser; inject an FsPort (e.g. bitfunFsPort)");
     }
-    // Node ESM 下通过 createRequire 获取 require（动态 import node:module 同理可行，
-    // 但此处用全局 require 兼容 CJS；ESM 运行时 Node 注入 globalThis.require 场景有限，
-    // 故改用静态 import 在 isNode 分支内——由调用方确保 Node 环境）。
+    // Node 22+：process.getBuiltinModule 可在 ESM 下**同步**取内置模块。
+    // 这是 ESM 入口（如 MiniApp 原型 server.mjs）的正确路径 —— eval('require') 在 ESM 下
+    // 会抛 ERR_AMBIGUOUS_MODULE_SYNTAX，仅能作为 CJS 上下文的回退。
+    const getBuiltinModule = (process as { getBuiltinModule?: (id: string) => unknown })
+      .getBuiltinModule;
+    if (typeof getBuiltinModule === "function") {
+      nodeCache = {
+        fs: getBuiltinModule("node:fs") as typeof import("node:fs"),
+        path: getBuiltinModule("node:path") as typeof import("node:path"),
+        os: getBuiltinModule("node:os") as typeof import("node:os"),
+      };
+      return nodeCache;
+    }
+    // 回退：CJS 上下文（eval('require') 仅在 CJS 中可用）
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const req: NodeRequire =
       typeof (globalThis as { require?: NodeRequire }).require === "function"
         ? (globalThis as { require: NodeRequire }).require
-        : // ESM 无全局 require 时退化为同步 import 结果（Node 专用）
-          (eval('require') as NodeRequire);
+        : (eval('require') as NodeRequire);
     nodeCache = {
       fs: req("node:fs"),
       path: req("node:path"),
@@ -74,6 +93,8 @@ export const nodeFsPort: FsPort = (() => {
     writeFile: (file: string, data: string) => loadNode().fs.promises.writeFile(file, data, "utf8"),
     readFile: (file: string) => loadNode().fs.promises.readFile(file, "utf8"),
     rename: (from: string, to: string) => loadNode().fs.promises.rename(from, to),
+    unlink: (file: string) => loadNode().fs.promises.unlink(file),
+    exists: (file: string) => loadNode().fs.existsSync(file),
     homedir: () => loadNode().os.homedir(),
   };
 })();

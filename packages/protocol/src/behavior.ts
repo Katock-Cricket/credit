@@ -49,6 +49,8 @@ export interface BehaviorContext {
   cmd?: string;
   output?: string | null;
   fidelity?: Fidelity;
+  /** 合并计数：>1 表示本条由 n 条原始事件合并而来（P1 治理 §3） */
+  mergedCount?: number;
 }
 
 export interface Behavior {

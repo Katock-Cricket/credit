@@ -20,6 +20,12 @@ importers:
 
   apps/miniapp: {}
 
+  apps/miniapp-prototype:
+    dependencies:
+      '@credit/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+
   bridges/bitfun:
     dependencies:
       '@credit/core':

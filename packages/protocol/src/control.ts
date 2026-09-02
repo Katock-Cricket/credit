@@ -7,6 +7,7 @@ import type { PrSession } from "./session.js";
 export type ControlMethod =
   | "credit.control.start"
   | "credit.control.end"
+  | "credit.control.finish"
   | "credit.control.getStatus"
   | "credit.control.reset";
 

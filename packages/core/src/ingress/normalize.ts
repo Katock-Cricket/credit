@@ -2,6 +2,8 @@
  * Ingress 归一化（架构 §5.1 / 算法方案 §2）。
  * CreditRawEvent → Behavior。复用 foreshadow 归一化思路（编辑合并、光标滑窗合并、
  * Actor 标注），在 @credit/core/ingress 重新实现（不 import foreshadow 运行时代码，ADR-10）。
+ *
+ * P1 变更：文件角色识别改为 config-driven（T5，`resolveRole`），规则表不再硬编码。
  */
 import type {
   CreditRawEvent,
@@ -10,6 +12,12 @@ import type {
   ObjectRole,
   Timestamp,
 } from "@credit/protocol";
+import {
+  DEFAULT_CREDIT_CONFIG,
+  type CreditConfig,
+  type IdentifyRule,
+} from "../config.js";
+import { resolveRole } from "../identify/file-role.js";
 
 export interface IngressConfig {
   /** 编辑合并时间窗（ms）：同 uri 相邻 textChanged 合并 */
@@ -21,24 +29,17 @@ export interface IngressConfig {
 }
 
 export const DEFAULT_INGRESS_CONFIG: IngressConfig = {
-  editMergeWindowMs: 800,
-  readDwellMs: 500,
-  source: "core-ingress",
+  editMergeWindowMs: DEFAULT_CREDIT_CONFIG.editMergeWindowMs,
+  readDwellMs: DEFAULT_CREDIT_CONFIG.readDwellMs,
+  source: DEFAULT_CREDIT_CONFIG.source,
 };
 
-/** 文件角色识别（简化版，详见算法方案文件身份识别器） */
-export function roleOf(uri: string): ObjectRole {
-  const lower = uri.toLowerCase();
-  // 测试文件（扩展名优先）：*.test.* / *.spec.* / __tests__ / /tests?/
-  if (/\.(test|spec)\.[jt]sx?$/.test(lower) || /__tests__|\/tests?\//.test(lower))
-    return "test";
-  // 规格/需求文档（按路径或文件名语义）
-  if (/spec|规格|需求/.test(lower)) return "spec";
-  if (/test.?plan|测试方案/.test(lower)) return "test-plan";
-  if (/\.(json|ya?ml|toml|config|env)$/.test(lower)) return "config";
-  if (/\.(ts|tsx|js|jsx|py|go|rs|java|cpp|c|css|html|vue)$/.test(lower))
-    return "source";
-  return "unknown";
+/**
+ * 文件角色识别（P1 T5 起改为 config-driven，规则表见 `DEFAULT_IDENTIFY_RULES`）。
+ * 保留导出以兼容既有调用；新代码请用 `resolveRole(uri, rules)` 显式传规则表。
+ */
+export function roleOf(uri: string, rules?: IdentifyRule[]): ObjectRole {
+  return resolveRole(uri, rules ?? DEFAULT_CREDIT_CONFIG.identify.rules);
 }
 
 /** Actor 标注（架构 §5.1 注释） */
@@ -99,12 +100,15 @@ export function toBehavior(
   evt: CreditRawEvent,
   prId: string,
   seq: number,
-  cfg: IngressConfig = DEFAULT_INGRESS_CONFIG,
+  cfg: Partial<CreditConfig> & { source?: string } = DEFAULT_CREDIT_CONFIG,
 ): Behavior {
   const actor = actorOf(evt);
   const action = actionOf(evt);
   const ts = (evt as { ts: Timestamp }).ts;
-  const source = cfg.source;
+  const source = cfg.source ?? DEFAULT_CREDIT_CONFIG.source;
+  const rules = cfg.identify?.rules ?? DEFAULT_CREDIT_CONFIG.identify.rules;
+  /** 按配置规则表解析文件角色（AGENTS §9：规则不硬编码） */
+  const role = (u: string): ObjectRole => resolveRole(u, rules);
 
   const fidelity =
     "fidelity" in evt ? (evt.fidelity as Behavior["context"]["fidelity"]) : undefined;
@@ -124,7 +128,7 @@ export function toBehavior(
     case "textChanged":
       return {
         ...base,
-        object: { kind: "file", uri: evt.uri, role: roleOf(evt.uri) },
+        object: { kind: "file", uri: evt.uri, role: role(evt.uri) },
         context: {
           ...base.context,
           before: evt.beforeText,
@@ -139,8 +143,8 @@ export function toBehavior(
         object: {
           kind: "file",
           uri: evt.uri,
-          role: roleOf(evt.uri),
-          lineRange: evt.selection ? [evt.line, evt.line] : [evt.line, evt.line],
+          role: role(evt.uri),
+          lineRange: [evt.line, evt.line],
         },
         context: {
           ...base.context,
@@ -150,12 +154,12 @@ export function toBehavior(
     case "activeEditorChanged":
       return {
         ...base,
-        object: { kind: "file", uri: evt.uri, role: roleOf(evt.uri) },
+        object: { kind: "file", uri: evt.uri, role: role(evt.uri) },
       };
     case "fileOpened":
       return {
         ...base,
-        object: { kind: "file", uri: evt.uri, role: roleOf(evt.uri) },
+        object: { kind: "file", uri: evt.uri, role: role(evt.uri) },
       };
     case "textScrolled":
       return {
@@ -163,7 +167,7 @@ export function toBehavior(
         object: {
           kind: "file",
           uri: evt.uri,
-          role: roleOf(evt.uri),
+          role: role(evt.uri),
           lineRange: [evt.viewport.firstLine, evt.viewport.lastLine],
         },
       };
@@ -181,7 +185,7 @@ export function toBehavior(
     case "fileRenamed":
       return {
         ...base,
-        object: { kind: "file", uri: evt.newUri, role: roleOf(evt.newUri) },
+        object: { kind: "file", uri: evt.newUri, role: role(evt.newUri) },
         context: { ...base.context, before: evt.oldUri },
       };
     case "promptSubmitted":

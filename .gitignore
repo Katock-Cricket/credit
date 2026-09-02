@@ -3,3 +3,5 @@
 /packages/core/dist
 /packages/core/node_modules
 /packages/protocol/dist
+/packages/protocol/node_modules
+/packages/protocol/node_modules
