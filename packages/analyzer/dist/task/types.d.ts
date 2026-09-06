@@ -61,6 +61,22 @@ export interface TaskMetrics {
     testPassed: number | null;
     testFailed: number | null;
 }
+/**
+ * Task 内人机主导权的**时间分布采样点**。
+ *
+ * 用于甘特图色块的连续渐变光谱（深=人工主导，浅=AI 主导），
+ * 也可供 P2 的过程类指标复用。
+ *
+ * **刻意存语义值而非颜色/alpha**：颜色映射是表现层职责，
+ * 且指标计算需要的是"谁在主导"而非"渲染成什么色"。
+ */
+export interface TaskSpectrumPoint {
+    /** 归一化时间偏移 ∈ [0,1]：0 = Task 起点，1 = Task 终点 */
+    t: number;
+    /** 该采样点邻域内 AI 行为占比 ∈ [0,1]：1 = 纯 AI，0 = 纯人工 */
+    ai: number;
+}
+export type TaskSpectrum = TaskSpectrumPoint[];
 export interface Task {
     id: string;
     prId: string;
@@ -87,6 +103,8 @@ export interface Task {
     promptIds: string[];
     testRunIds: string[];
     metrics: TaskMetrics;
+    /** 人机主导权的时间分布（后端预计算，见 `spectrum.ts`） */
+    spectrum: TaskSpectrum;
 }
 /** 阶段侧：持有**可不连续**的 taskIds —— 乱序归类的落点 */
 export interface StageSegment {

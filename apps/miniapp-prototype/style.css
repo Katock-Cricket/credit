@@ -50,6 +50,17 @@
   --st-manual-verification: var(--bitfun-success, #3fb950);
   --st-ai-review: #f778ba;
   --st-unknown: var(--bitfun-text-muted, #6e7681);
+
+  /* 阶段色的 **RGB 分量** —— 供色块渐变取透明度：`rgb(var(--st-rgb-x) / α)`。
+     上面的 --st-<stage> 仍需保留（泳道圆点等按整体色使用）。 */
+  --st-rgb-spec-engineering: 188 140 255;
+  --st-rgb-test-planning: 57 197 207;
+  --st-rgb-ai-code-generation: 88 166 255;
+  --st-rgb-ai-testing: 210 153 34;
+  --st-rgb-ai-fix: 248 81 73;
+  --st-rgb-manual-verification: 63 185 80;
+  --st-rgb-ai-review: 247 120 186;
+  --st-rgb-unknown: 110 118 129;
 }
 
 /* light 主题下的差异化覆写 */
@@ -58,6 +69,8 @@
   --bg-surface: var(--bitfun-bg-secondary, #f6f8fa);
   --st-test-planning: #1b7c83;
   --st-ai-review: #bf3989;
+  --st-rgb-test-planning: 27 124 131;
+  --st-rgb-ai-review: 191 57 137;
 }
 
 *,
@@ -304,22 +317,6 @@ code,
   font-size: 11px;
   color: var(--text-sec);
 }
-.dev-ai-bar {
-  display: flex;
-  height: 8px;
-  border-radius: var(--radius);
-  overflow: hidden;
-  background: var(--border-subtle);
-  min-width: 160px;
-  flex: 1;
-}
-.dev-ai-bar .dev {
-  background: var(--accent);
-}
-.dev-ai-bar .ai {
-  background: var(--text-dim);
-}
-
 /* 缩放控制条 */
 .gantt-zoom {
   display: flex;
@@ -409,7 +406,9 @@ code,
   position: absolute;
   top: 2px;
   height: 28px;
-  min-width: 6px;
+  /* 极短 Task（如 15s）在缩放下与相邻块间距可能小于此值 → 会重叠到邻块的可点区域，
+     故取较小值；可见性由「最小 0.6% 宽度 + 悬浮提示」共同保证 */
+  min-width: 4px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   cursor: pointer;
@@ -442,16 +441,10 @@ code,
 .task-block .fill {
   position: absolute;
   inset: 0;
-  background: var(--tint);
-  opacity: var(--tint-alpha, 0.55);
+  /* 背景由 JS 写入：连续渐变光谱（默认）或窄块降级的单色 */
   pointer-events: none;
 }
-.task-block .label {
-  position: relative;
-  z-index: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+
 /* 事件标记：纯 CSS 几何形状，不用 emoji/符号 */
 .marks {
   position: absolute;
@@ -589,6 +582,47 @@ code,
   font-size: 14px;
   font-weight: 600;
 }
+
+/* 一行概览：取代原 dt/dd 自适应网格 —— 阅读方向唯一（横向扫完一行） */
+.detail-meta {
+  font-size: 11px;
+  color: var(--text-sec);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 8px;
+}
+
+/* 补充说明：标签 + 值，纵向罗列 */
+.detail-extra {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 8px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.detail-extra-row {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 8px;
+  font-size: 11px;
+}
+.detail-extra-key {
+  color: var(--text-sec);
+}
+.detail-extra-val {
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 分区小标题（如「行为明细」） */
+.detail-section {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-sec);
+  margin: 8px 0 4px;
+}
 .detail-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -610,7 +644,8 @@ code,
 }
 .behavior-row {
   display: grid;
-  grid-template-columns: 68px 42px 1fr;
+  /* 动作列加宽：42px 时 `dev:terminal.exec` 会被内容列压住 */
+  grid-template-columns: 68px 104px 1fr;
   gap: 8px;
   padding: 4px 8px;
   font-size: 11px;

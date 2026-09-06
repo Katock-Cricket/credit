@@ -99,10 +99,17 @@
               <h2 data-i18n="lblTimeline">过程时间线</h2>
               <div id="gantt-host"></div>
               <div class="hint" data-i18n="hintClickTask">
-                点击 Task 块查看详情；色深表示 AI 行为占比。
+                点击 Task 块查看详情；色深为人工主导，色浅为 AI 主导。
               </div>
+              <!-- 建模状态提示（如 LLM 未启用而走规则降级）：仅一行，不单列模块 -->
+              <div id="model-hint" class="hint" hidden></div>
               <div class="row" style="margin-top: 12px">
-                <button id="recompute" style="flex: none; min-width: 140px" hidden>
+                <button
+                  id="recompute"
+                  data-i18n="btnRecompute"
+                  style="flex: none; min-width: 140px"
+                  hidden
+                >
                   重新计算（忽略缓存）
                 </button>
               </div>
@@ -111,11 +118,6 @@
             <div class="panel">
               <h2 data-i18n="lblAnalytics">过程分析</h2>
               <div id="analytics" class="analytics"></div>
-            </div>
-
-            <div class="panel">
-              <h2 data-i18n="lblDiagnostics">切分自检</h2>
-              <div id="diagnostics"></div>
             </div>
 
             <div id="detail" class="detail" hidden></div>

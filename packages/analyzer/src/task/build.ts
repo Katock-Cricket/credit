@@ -14,6 +14,7 @@ import { detectTestRuns, type TestRun } from "./testrun.js";
 import { detectReviewSessions } from "./review.js";
 import { annotateStages, makeClassifyContext, DEFAULT_FIX_WINDOW_MS } from "./stage.js";
 import { aggregateFiles, buildBehaviorSummary, computeMetrics, inferTaskType } from "./files.js";
+import { computeTaskSpectrum } from "./spectrum.js";
 import { cleanPrompt, generateDescs, fallbackDesc, type DescTaskInput } from "./desc.js";
 import {
   ALL_STAGES,
@@ -148,6 +149,8 @@ export async function buildTaskGraph(opts: BuildTaskGraphOptions): Promise<TaskG
       promptIds,
       testRunIds: clusterRuns.map((r) => r.id),
       metrics: computeMetrics(bs, clusterRuns),
+      // 人机主导权的时间分布（后端预计算，前端直接用于渐变渲染）
+      spectrum: computeTaskSpectrum(bs),
     };
     prevEndTs = endTs;
 

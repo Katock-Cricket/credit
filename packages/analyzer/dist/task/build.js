@@ -4,6 +4,7 @@ import { detectTestRuns } from "./testrun.js";
 import { detectReviewSessions } from "./review.js";
 import { annotateStages, makeClassifyContext, DEFAULT_FIX_WINDOW_MS } from "./stage.js";
 import { aggregateFiles, buildBehaviorSummary, computeMetrics, inferTaskType } from "./files.js";
+import { computeTaskSpectrum } from "./spectrum.js";
 import { cleanPrompt, generateDescs, fallbackDesc } from "./desc.js";
 import { ALL_STAGES, TASK_GRAPH_VERSION, } from "./types.js";
 /** 从 Behavior.id（`<prId>-<seq>`）提取序号 */
@@ -98,6 +99,8 @@ export async function buildTaskGraph(opts) {
             promptIds,
             testRunIds: clusterRuns.map((r) => r.id),
             metrics: computeMetrics(bs, clusterRuns),
+            // 人机主导权的时间分布（后端预计算，前端直接用于渐变渲染）
+            spectrum: computeTaskSpectrum(bs),
         };
         prevEndTs = endTs;
         // ── Desc 输入 ──

@@ -14,5 +14,6 @@ export * from "./task/review.js";
 export * from "./task/stage.js";
 export * from "./task/desc.js";
 export * from "./task/files.js";
+export * from "./task/spectrum.js";
 export * from "./task/build.js";
 export * from "./process/index.js";

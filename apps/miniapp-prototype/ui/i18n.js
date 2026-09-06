@@ -2,7 +2,7 @@
  * I18N（zh-CN / en-US）。
  *
  * MiniApp Skill 硬约束：从第一版就带上 i18n，静态文案可重渲染，动态文案走本表。
- * 动态内容包括：阶段名、Task 类型、分析图层名、diagnostics 字段名、协作模式名。
+ * 动态内容包括：阶段名、Task 类型、分析图层名、协作模式名。
  * **不翻译**：`Task.desc`（取自用户 prompt 原文，原样呈现）。
  */
 
@@ -76,16 +76,12 @@ export const MESSAGES = {
   lblLoading: { "zh-CN": "加载中…", "en-US": "Loading…" },
   lblTimeline: { "zh-CN": "过程时间线", "en-US": "Process Timeline" },
   lblAnalytics: { "zh-CN": "过程分析", "en-US": "Analytics" },
-  lblDiagnostics: { "zh-CN": "切分自检", "en-US": "Diagnostics" },
-  lblDev: { "zh-CN": "Dev", "en-US": "Dev" },
-  lblAi: { "zh-CN": "AI", "en-US": "AI" },
-  lblTasks: { "zh-CN": "Task 数", "en-US": "Tasks" },
   lblBehaviors: { "zh-CN": "行为数", "en-US": "Behaviors" },
-  lblAvgTask: { "zh-CN": "平均时长", "en-US": "Avg Task" },
-  lblMixed: { "zh-CN": "跨阶段 Task", "en-US": "Mixed-stage" },
-  lblLlmCalls: { "zh-CN": "LLM 调用", "en-US": "LLM Calls" },
-  lblFallback: { "zh-CN": "降级 Task", "en-US": "Fallback" },
-  lblReview: { "zh-CN": "Review 轮次", "en-US": "Review Rounds" },
+  lblAiRatio: { "zh-CN": "AI 占比", "en-US": "AI share" },
+  btnRecompute: {
+    "zh-CN": "重新计算（忽略缓存）",
+    "en-US": "Recompute (ignore cache)",
+  },
   lblDuration: { "zh-CN": "时长", "en-US": "Duration" },
   lblStage: { "zh-CN": "阶段", "en-US": "Stage" },
   lblType: { "zh-CN": "类型", "en-US": "Type" },
@@ -114,6 +110,7 @@ export const MESSAGES = {
     "en-US": "Ctrl+Wheel zoom · drag to pan · double-click to reset",
   },
   btnResetZoom: { "zh-CN": "重置", "en-US": "Reset" },
+  lblSubspan: { "zh-CN": "跨阶段子段", "en-US": "cross-stage span" },
   btnZoomIn: { "zh-CN": "放大", "en-US": "Zoom in" },
   btnZoomOut: { "zh-CN": "缩小", "en-US": "Zoom out" },
   lblZoomed: { "zh-CN": "已缩放", "en-US": "Zoomed" },

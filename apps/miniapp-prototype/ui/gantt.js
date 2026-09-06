@@ -18,7 +18,9 @@
  * - 禁"左侧色条 + 圆角卡片" → Task 块靠填充色深浅表 AI 占比；
  * - 命中区 ≥ 32px → Task 块 28px + 泳道留白，实际可点区 32px；控制条按钮 ≥ 32px。
  */
-import { tStage, t } from "./i18n.js";
+// 注意：本文件渲染循环里的 `t` 是 **Task 对象**（`const t = item.task`），
+// 会遮蔽 i18n 的 `t`。故此处用别名 `tText`，避免踩坑（曾导致 "t is not a function"）。
+import { tStage, t as tText } from "./i18n.js";
 
 const STAGE_ORDER = [
   "spec-engineering",
@@ -38,6 +40,15 @@ const ZOOM_STEP = 1.15;
 const DRAG_THRESHOLD = 4;
 /** 时间轴刻度数量 */
 const TICK_COUNT = 4;
+/**
+ * 色块宽度低于此像素值时，渐变退化为单色。
+ *
+ * 初版取 8px，实测全览下 17 个块里有 10 个被降级（多数 Task 时长占比极小），
+ * 渐变几乎看不到 —— 与"连续渐变光谱"的预期不符。降到 4px（等同 min-width）
+ * 后，除极端情况外都能呈现渐变；4px 内的渐变虽难分辨层次，但不会像 8px 那样
+ * 直接抹掉整块信息，且放大后自然清晰。
+ */
+const NARROW_BLOCK_PX = 4;
 
 // ── 状态 ──
 let vp = null; // { start, end } —— null 表示全览
@@ -50,9 +61,48 @@ let rafPending = false;
 /** 已绑定交互的 host（避免每次渲染重复绑定） */
 const boundHosts = new WeakSet();
 
-/** 阶段 → CSS 颜色变量 */
+/** 阶段 → CSS 颜色变量（整体色，供泳道圆点等使用） */
 function stageColor(stage) {
   return `var(--st-${stage}, var(--st-unknown))`;
+}
+
+/** 阶段 → RGB 分量变量（供 `rgb(R G B / α)` 取透明度） */
+function stageRgb(stage) {
+  return `var(--st-rgb-${stage}, var(--st-rgb-unknown))`;
+}
+
+/**
+ * 人机主导权 → 填充透明度。
+ * **AI 主导 → 浅（0.22，透出深色底）｜人工主导 → 深（0.9）**。
+ */
+const ALPHA_AI = 0.22;
+const ALPHA_DEV = 0.9;
+function alphaFor(ai) {
+  const v = Number.isFinite(ai) ? Math.min(1, Math.max(0, ai)) : 0;
+  return ALPHA_AI + (1 - v) * (ALPHA_DEV - ALPHA_AI);
+}
+
+/** 单色（窄色块降级用） */
+function buildSolid(stage, ai) {
+  return `rgb(${stageRgb(stage)} / ${alphaFor(ai).toFixed(2)})`;
+}
+
+/**
+ * 连续渐变光谱：沿时间方向，深=人工主导、浅=AI 主导。
+ *
+ * 数据来自后端预计算的 `Task.spectrum`（语义值：t 偏移 + ai 占比），
+ * 此处只负责把语义值映射为颜色透明度 —— 刻意不在前端重新分析行为。
+ *
+ * 采样点不足 2 个时退化为单色（短 Task 无分布信息）。
+ */
+function buildGradient(spectrum, stage, fallbackAi) {
+  const pts = Array.isArray(spectrum) ? spectrum : [];
+  if (pts.length < 2) return buildSolid(stage, fallbackAi);
+  const base = stageRgb(stage);
+  const stops = pts.map(
+    (p) => `rgb(${base} / ${alphaFor(p.ai).toFixed(2)}) ${(Math.min(1, Math.max(0, p.t)) * 100).toFixed(1)}%`,
+  );
+  return `linear-gradient(to right, ${stops.join(", ")})`;
 }
 
 /** 时长格式化 */
@@ -126,6 +176,9 @@ function applyViewport(host) {
   const span = Math.max(1, ve - vs);
   const pct = (ts) => ((ts - vs) / span) * 100;
 
+  // 窄块降级阈值：渐变在 2–3px 内会呈噪点，退化用单色
+  const trackW = host.querySelector(".lane-track")?.getBoundingClientRect().width ?? 0;
+
   for (const el of host.querySelectorAll(".task-block")) {
     const s0 = Number(el.dataset.s0);
     const s1 = Number(el.dataset.s1);
@@ -134,6 +187,14 @@ function applyViewport(host) {
     if (!visible) continue;
     el.style.left = `${pct(s0)}%`;
     el.style.width = `max(0.6%, ${Math.max(0.5, ((s1 - s0) / span) * 100)}%)`;
+
+    // 只做"渐变 or 单色"的二选一，不重新拼字符串
+    const fill = el.querySelector(".fill");
+    if (fill) {
+      const wPx = trackW > 0 ? ((s1 - s0) / span) * trackW : Number.POSITIVE_INFINITY;
+      fill.style.background =
+        wPx < NARROW_BLOCK_PX ? el.dataset.solid || "" : el.dataset.grad || el.dataset.solid || "";
+    }
   }
 
   for (const el of host.querySelectorAll(".axis-tick")) {
@@ -284,7 +345,7 @@ export function renderGantt(host, graph, opts = {}) {
   const tip = document.createElement("span");
   tip.className = "hint";
   tip.style.marginTop = "0";
-  tip.textContent = t("hintZoom");
+  tip.textContent = tText("hintZoom");
   const level = document.createElement("span");
   level.className = "zoom-level mono";
   bar.append(tip, level);
@@ -304,14 +365,14 @@ export function renderGantt(host, graph, opts = {}) {
     return btn;
   };
   bar.append(
-    mkZoomBtn("−", t("btnZoomOut"), "zoom-btn-out", ZOOM_STEP),
-    mkZoomBtn("+", t("btnZoomIn"), "zoom-btn-in", 1 / ZOOM_STEP),
+    mkZoomBtn("−", tText("btnZoomOut"), "zoom-btn-out", ZOOM_STEP),
+    mkZoomBtn("+", tText("btnZoomIn"), "zoom-btn-in", 1 / ZOOM_STEP),
   );
 
   const reset = document.createElement("button");
   reset.type = "button";
   reset.className = "zoom-reset";
-  reset.textContent = t("btnResetZoom");
+  reset.textContent = tText("btnResetZoom");
   reset.addEventListener("click", () => {
     if (!bounds) return;
     vp = null;
@@ -383,18 +444,21 @@ export function renderGantt(host, graph, opts = {}) {
       // 时间存在 dataset 上：平移/缩放时据此重算位置，无需重建 DOM
       block.dataset.s0 = String(s0);
       block.dataset.s1 = String(s1);
-      block.style.setProperty("--tint", stageColor(stage));
-      block.style.setProperty("--tint-alpha", String(0.25 + t.metrics.aiRatio * 0.6));
-      block.title = `${tStage(sp.stage)} · ${fmtDur(s1 - s0)} · AI ${Math.round(
+      // 渐变/单色在**建 DOM 时算一次**并缓存；applyViewport 只按宽度二选一，
+      // 避免缩放/平移路径上重复拼字符串。
+      block.dataset.grad = buildGradient(t.spectrum, stage, t.metrics.aiRatio);
+      block.dataset.solid = buildSolid(stage, t.metrics.aiRatio);
+      // 悬浮提示：原字段保留，并追加 Task.Desc（块内已不再显示文字）
+      const head = `${tStage(sp.stage)} · ${fmtDur(s1 - s0)} · AI ${Math.round(
         t.metrics.aiRatio * 100,
-      )}%${(t.spans?.length ?? 0) > 1 ? " · 跨阶段子段" : ""}`;
+      )}%${(t.spans?.length ?? 0) > 1 ? ` · ${tText("lblSubspan")}` : ""}`;
+      const body = t.desc || t.behaviorSummary || "";
+      block.title = body ? `${head}\n${body}` : head;
 
+      // 块内不再放文字（窄块下会截断且产生视觉噪声），信息改由悬浮提示承载
       const fill = document.createElement("span");
       fill.className = "fill";
-      const labelEl = document.createElement("span");
-      labelEl.className = "label";
-      labelEl.textContent = t.desc ?? "";
-      block.append(fill, labelEl);
+      block.append(fill);
 
       const marks = buildMarks(t);
       if (marks.length > 0) {

@@ -14,6 +14,7 @@ import { classifyWindow, annotateStages, makeClassifyContext, buildFixWindows } 
 import { detectTestRuns } from "./testrun.js";
 import { cleanPrompt, fallbackDesc, generateDescs } from "./desc.js";
 import { buildBehaviorSummary, aggregateFiles, computeMetrics } from "./files.js";
+import { computeTaskSpectrum, overallAiRatio } from "./spectrum.js";
 import { mergeTaskConfig, DEFAULT_TASK_CONFIG } from "./config.js";
 import { createAnalyticRegistry } from "../process/registry.js";
 import { createAiInvolvementLayer, createCollabPatternLayer } from "../process/index.js";
@@ -670,6 +671,106 @@ describe("build · TaskGraph", () => {
     const g = await buildTaskGraph({ prId: "pr-1", behaviors: [], llm: createNullLlmPort() });
     expect(g.tasks).toHaveLength(0);
     expect(g.stages.every((s) => !s.present)).toBe(true);
+  });
+});
+
+// ───────────────────────── Task.spectrum（后端预计算的光谱） ─────────────────────────
+
+describe("spectrum · 人机主导权时间分布", () => {
+  it("空输入 → 空数组", () => {
+    expect(computeTaskSpectrum([])).toEqual([]);
+  });
+
+  it("短 Task（<4 条行为）退化为单点，ai = 整体占比", () => {
+    const bs = [
+      edit(1000, "src/a.ts", "source", "ai"),
+      edit(2000, "src/a.ts", "source", "ai"),
+      prompt(3000, "hi"),
+    ];
+    const sp = computeTaskSpectrum(bs);
+    expect(sp).toHaveLength(1);
+    expect(sp[0]!.t).toBe(0.5);
+    expect(sp[0]!.ai).toBeCloseTo(2 / 3, 3);
+  });
+
+  it("多段：前段人工主导、后段 AI 主导 —— 反映 Task 内部主导权变化", () => {
+    const bs = [
+      // 前半：dev
+      edit(1000, "src/a.ts", "source", "dev"),
+      edit(1500, "src/a.ts", "source", "dev"),
+      edit(2000, "src/a.ts", "source", "dev"),
+      // 后半：ai
+      edit(8000, "src/a.ts", "source", "ai"),
+      edit(8500, "src/a.ts", "source", "ai"),
+      edit(9000, "src/a.ts", "source", "ai"),
+    ];
+    const sp = computeTaskSpectrum(bs, { maxSegments: 4 });
+    expect(sp.length).toBe(5); // N+1 个点（含首尾）
+    expect(sp[0]!.t).toBe(0);
+    expect(sp[sp.length - 1]!.t).toBe(1);
+    // 首点应为纯人工（ai≈0），末点应为纯 AI（ai≈1）
+    expect(sp[0]!.ai).toBe(0);
+    expect(sp[sp.length - 1]!.ai).toBe(1);
+  });
+
+  it("空段用整体占比兜底，不产生跳变或 NaN", () => {
+    // 行为集中在两端，中间留一大段空档
+    const bs = [
+      edit(1000, "src/a.ts", "source", "dev"),
+      edit(1100, "src/a.ts", "source", "dev"),
+      edit(9000, "src/a.ts", "source", "ai"),
+      edit(9100, "src/a.ts", "source", "ai"),
+    ];
+    const sp = computeTaskSpectrum(bs, { maxSegments: 4 });
+    for (const p of sp) {
+      expect(Number.isFinite(p.ai)).toBe(true);
+      expect(p.ai).toBeGreaterThanOrEqual(0);
+      expect(p.ai).toBeLessThanOrEqual(1);
+    }
+    // 中间空段应等于整体占比 0.5
+    expect(sp[2]!.ai).toBeCloseTo(0.5, 3);
+  });
+
+  it("零时长（所有行为同 ts）退化为单点，不除零", () => {
+    const bs = [
+      edit(5000, "src/a.ts", "source", "ai"),
+      edit(5000, "src/a.ts", "source", "dev"),
+      edit(5000, "src/a.ts", "source", "ai"),
+      edit(5000, "src/a.ts", "source", "ai"),
+    ];
+    const sp = computeTaskSpectrum(bs);
+    expect(sp).toHaveLength(1);
+    expect(sp[0]!.ai).toBeCloseTo(0.75, 3);
+  });
+
+  it("段数受 maxSegments 与行为数共同约束（取较小者）", () => {
+    const bs = Array.from({ length: 6 }, (_, i) =>
+      edit(1000 + i * 1000, "src/a.ts", "source", i % 2 === 0 ? "ai" : "dev"),
+    );
+    expect(computeTaskSpectrum(bs, { maxSegments: 10 })).toHaveLength(7); // min(10,6)+1
+    expect(computeTaskSpectrum(bs, { maxSegments: 3 })).toHaveLength(4); // min(3,6)+1
+  });
+
+  it("t 单调递增且落在 [0,1]", () => {
+    const bs = Array.from({ length: 20 }, (_, i) =>
+      edit(1000 + i * 500, "src/a.ts", "source", i < 10 ? "dev" : "ai"),
+    );
+    const sp = computeTaskSpectrum(bs, { maxSegments: 10 });
+    for (let i = 1; i < sp.length; i++) {
+      expect(sp[i]!.t).toBeGreaterThan(sp[i - 1]!.t);
+    }
+    expect(sp[0]!.t).toBe(0);
+    expect(sp[sp.length - 1]!.t).toBe(1);
+  });
+
+  it("整体 ai 与 metrics.aiRatio 一致", () => {
+    const bs = [
+      edit(1000, "src/a.ts", "source", "ai"),
+      edit(2000, "src/a.ts", "source", "ai"),
+      edit(3000, "src/a.ts", "source", "dev"),
+      edit(4000, "src/a.ts", "source", "ai"),
+    ];
+    expect(overallAiRatio(bs)).toBeCloseTo(computeMetrics(bs, []).aiRatio, 4);
   });
 });
 
