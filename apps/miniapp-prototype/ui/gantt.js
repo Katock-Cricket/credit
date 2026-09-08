@@ -72,14 +72,26 @@ function stageRgb(stage) {
 }
 
 /**
- * 人机主导权 → 填充透明度。
- * **AI 主导 → 浅（0.22，透出深色底）｜人工主导 → 深（0.9）**。
+ * 填充透明度区间：**AI 主导 → 浅｜人工主导 → 深**。
+ *
+ * **随主题取值不同**：同一 alpha 在深底和亮底上的观感完全相反 ——
+ * 亮底上 0.22 会被白色"洗掉"（几乎看不见块），故亮色抬高下限到 0.42；
+ * 深底上过高则失去层次。切主题时必须重算（见 ui.js 的主题切换）。
  */
-const ALPHA_AI = 0.22;
-const ALPHA_DEV = 0.9;
+const ALPHA_RANGE = {
+  dark: { ai: 0.22, dev: 0.9 },
+  light: { ai: 0.42, dev: 0.95 },
+};
+
+/** 当前是否亮色（原型独立运行时由 ui.js 维护该属性） */
+function isLightTheme() {
+  return document.documentElement.getAttribute("data-bf-appearance-mode") === "light";
+}
+
 function alphaFor(ai) {
   const v = Number.isFinite(ai) ? Math.min(1, Math.max(0, ai)) : 0;
-  return ALPHA_AI + (1 - v) * (ALPHA_DEV - ALPHA_AI);
+  const r = isLightTheme() ? ALPHA_RANGE.light : ALPHA_RANGE.dark;
+  return r.ai + (1 - v) * (r.dev - r.ai);
 }
 
 /** 单色（窄色块降级用） */

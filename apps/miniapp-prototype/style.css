@@ -27,7 +27,9 @@
   --border-subtle: var(--bitfun-border-subtle, #21262d);
   --text: var(--bitfun-text, #e6edf3);
   --text-sec: var(--bitfun-text-secondary, #8b949e);
-  --text-dim: var(--bitfun-text-muted, #6e7681);
+  /* 比 text-sec 更暗一档，但仍需满足 AA 4.5:1 —— 原 #6e7681 在面板底上仅 3.77，
+     时间戳/元信息等 11px 小字会发灰难辨，故提亮到 ~4.6 */
+  --text-dim: var(--bitfun-text-muted, #7d8590);
   --accent: var(--bitfun-accent, #58a6ff);
   --accent-dim: var(--bitfun-accent-hover, #1f6feb);
   --success: var(--bitfun-success, #3fb950);
@@ -63,14 +65,56 @@
   --st-rgb-unknown: 110 118 129;
 }
 
-/* light 主题下的差异化覆写 */
+/**
+ * light 主题覆写。
+ *
+ * **必须覆盖 `:root` 中定义的全部语义变量** —— 初版只改了 2 个背景色，
+ * 结果白底配 `#e6edf3` 浅色字（几乎不可读）。凡 `:root` 里带 fallback 的变量，
+ * 此处都要给出亮色 fallback。
+ *
+ * 注意：`var(--bitfun-x, <fallback>)` 的取值优先级是「宿主注入 > 本文件 fallback」。
+ * 在 Bitfun 内运行时宿体会随主题切换自动改 `--bitfun-*`，此时覆写不生效也无害；
+ * 独立运行（原型）时没有宿主变量，靠这里的 fallback 生效。
+ *
+ * **层次策略**：页面底用浅灰、面板用纯白 —— 白卡片浮于浅灰底，层次比
+ * 「白底 + 浅灰面板」更清晰（后者面板会\"陷进去\"看不出边界）。
+ */
 [data-bf-appearance-mode="light"] {
-  --bg: var(--bitfun-bg, #ffffff);
-  --bg-surface: var(--bitfun-bg-secondary, #f6f8fa);
+  --bg: var(--bitfun-bg, #f6f8fa);
+  --bg-surface: var(--bitfun-bg-secondary, #ffffff);
+  --bg-hover: var(--bitfun-element-hover, #eef1f4);
+  --bg-active: var(--bitfun-element-bg, #e7f1ff);
+  --border: var(--bitfun-border, #d0d7de);
+  --border-subtle: var(--bitfun-border-subtle, #e6eaef);
+  --text: var(--bitfun-text, #1f2328);
+  --text-sec: var(--bitfun-text-secondary, #59636e);
+  /* #6e7781 在部分叠加背景下实测仅 4.27（11px 时间戳偏灰），提深一档 */
+  --text-dim: var(--bitfun-text-muted, #656d76);
+  --accent: var(--bitfun-accent, #0969da);
+  --accent-dim: var(--bitfun-accent-hover, #0550ae);
+  --success: var(--bitfun-success, #1a7f37);
+  --error: var(--bitfun-error, #cf222e);
+  --warning: var(--bitfun-warning, #9a6700);
+  --info: var(--bitfun-info, #8250df);
+
+  /* 阶段色：亮底需更深/更饱和，否则对比度不足（深色版是给深底用的） */
+  --st-spec-engineering: #8250df;
   --st-test-planning: #1b7c83;
+  --st-ai-code-generation: #0969da;
+  --st-ai-testing: #9a6700;
+  --st-ai-fix: #cf222e;
+  --st-manual-verification: #1a7f37;
   --st-ai-review: #bf3989;
+  --st-unknown: #6e7781;
+
+  --st-rgb-spec-engineering: 130 80 223;
   --st-rgb-test-planning: 27 124 131;
+  --st-rgb-ai-code-generation: 9 105 218;
+  --st-rgb-ai-testing: 154 103 0;
+  --st-rgb-ai-fix: 207 34 46;
+  --st-rgb-manual-verification: 26 127 55;
   --st-rgb-ai-review: 191 57 137;
+  --st-rgb-unknown: 110 119 129;
 }
 
 *,
@@ -392,7 +436,10 @@ code,
 .lane-track {
   position: relative;
   height: 32px;
-  background: linear-gradient(
+  /* 用页面底色（比面板更暗/更深一档）做"轨道槽"，网格线叠在其上 ——
+     亮色下尤其需要：否则轨道与白色面板完全同色，看不出时间轴的范围 */
+  background-color: var(--bg);
+  background-image: linear-gradient(
     to right,
     var(--border-subtle) 1px,
     transparent 1px
@@ -502,6 +549,202 @@ code,
   position: absolute;
   transform: translateX(-50%);
   white-space: nowrap;
+}
+
+/* ── P2：PR_Credit 指标树 ─────────────────────────
+   设计约束（承 D-022）：颜色走 --bitfun-* 变量、状态徽标复用 warning/muted/error
+   不新增色相；图标一律 inline SVG 或 CSS 形状，禁用 emoji / Unicode 符号。 */
+
+/* 总分卡 */
+.credit-summary {
+  margin-bottom: 12px;
+}
+.ct-summary-card {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding: 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.ct-total {
+  font-family: var(--font-mono);
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text);
+}
+.ct-band {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.ct-comment {
+  font-size: 11px;
+  color: var(--text-sec);
+  margin-top: 4px;
+}
+
+/* 树 */
+.credit-tree {
+  font-size: 13px;
+}
+.ct-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px; /* 点击区 ≥ 32px */
+  padding: 4px 0;
+}
+.ct-row:hover {
+  background: var(--bg-hover);
+  border-radius: var(--radius);
+}
+
+/* 展开箭头：纯 CSS 三角，不用 ▸ 之类符号 */
+.ct-toggle {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+}
+.ct-toggle::before {
+  content: "";
+  position: absolute;
+  top: 5px;
+  left: 4px;
+  border-left: 5px solid var(--text-sec);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transform: rotate(90deg);
+  transition: transform 0.12s;
+}
+.ct-toggle.is-collapsed::before {
+  transform: rotate(0deg);
+}
+.ct-toggle-empty {
+  visibility: hidden;
+  cursor: default;
+}
+
+.ct-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 状态徽标 */
+.ct-badge {
+  flex: none;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.ct-badge-pending {
+  color: var(--warning);
+  border-color: var(--warning);
+}
+.ct-badge-degraded {
+  color: var(--text-sec);
+}
+.ct-badge-error {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.ct-score {
+  flex: none;
+  width: 52px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-sec);
+}
+
+.ct-info {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.ct-info:hover {
+  background: var(--bg-active);
+  color: var(--text);
+}
+.ct-info.is-open {
+  color: var(--accent);
+}
+.ct-info.is-empty {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.ct-detail {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+}
+
+/* 证据面板 */
+.ct-ev {
+  margin: 4px 0 8px;
+  padding: 8px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px; /* 浮层用大圆角 */
+}
+.ct-ev-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-sec);
+  margin-bottom: 4px;
+}
+.ct-ev-row {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  padding: 2px 0;
+}
+.ct-ev-kind {
+  flex: none;
+  width: 64px;
+  color: var(--text-dim);
+}
+.ct-ev-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-sec);
+  word-break: break-word;
+}
+.ct-ev-link {
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.ct-node.is-collapsed > .ct-children {
+  display: none;
 }
 
 /* ── 分析图层 ───────────────────────── */

@@ -821,6 +821,52 @@ describe("process · 分析插件（D-017）", () => {
     expect(views[0]!.warnings?.[0]).toBe("boom");
     expect(views[1]!.data).not.toBeNull(); // 第二个图层正常
   });
+
+  it("registry.run：未注册 id 返回 null，已注册返回视图", async () => {
+    const g = await graphOf();
+    const reg = createAnalyticRegistry([createAiInvolvementLayer()]);
+    expect(reg.run("not-exist", g, [])).toBeNull();
+    expect(reg.run("ai-involvement", g, [])?.id).toBe("ai-involvement");
+  });
+
+  it("ai-involvement：无 accept 事件 → warnings 提示边界由推断得出", async () => {
+    const g = await graphOf();
+    const v = createAiInvolvementLayer().compute(g, []);
+    expect(v.warnings?.some((w) => w.includes("userAccept"))).toBe(true);
+  });
+
+  it("collab-pattern：Dev 编辑占主导 → 手工式", async () => {
+    const g = await buildTaskGraph({
+      prId: "pr-1",
+      behaviors: [
+        prompt(1000, "我自己写"),
+        edit(2000, "src/a.ts", "source", "dev"),
+        edit(3000, "src/a.ts", "source", "dev"),
+        edit(4000, "src/b.ts", "source", "ai"),
+      ],
+      llm: createNullLlmPort(),
+    });
+    const d = createCollabPatternLayer().compute(g, []).data as { pattern: string };
+    expect(d.pattern).toBe("manual");
+  });
+
+  it("collab-pattern：AI 产出密集 + 阅读行为占比高 → 审阅式", async () => {
+    const g = await buildTaskGraph({
+      prId: "pr-1",
+      behaviors: [
+        prompt(1000, "干活"),
+        ...series(6, 2000, 500, () => ({ action: "agent.tool" as const, actor: "ai" as const })),
+        ...series(4, 6000, 500, () => ({
+          action: "file.scroll" as const,
+          actor: "dev" as const,
+          object: { kind: "file" as const, uri: "src/a.ts", role: "source" as const },
+        })),
+      ],
+      llm: createNullLlmPort(),
+    });
+    const d = createCollabPatternLayer().compute(g, []).data as { pattern: string };
+    expect(d.pattern).toBe("review");
+  });
 });
 
 // 局部辅助

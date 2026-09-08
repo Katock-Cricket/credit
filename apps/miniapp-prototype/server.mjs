@@ -22,12 +22,18 @@ import { fileURLToPath } from "node:url";
 import { createBridge } from "@credit/core";
 import {
   buildTaskGraph,
+  computeCredit,
+  inputFingerprint,
+  parseUnifiedDiff,
+  RULESET,
   createDefaultAnalyticRegistry,
   createOpenAILlmPort,
   createNullLlmPort,
   createMemoryCache,
   DEFAULT_LLM_CONFIG,
 } from "@credit/analyzer";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.CREDIT_PROTO_PORT ?? 5178);
@@ -140,6 +146,119 @@ async function getLlmPort() {
 
 const analyticRegistry = createDefaultAnalyticRegistry();
 
+// ─────────────── P2：git / 文件 Port（决策 D-030：使用真实 git） ───────────────
+
+const execFileAsync = promisify(execFile);
+
+async function git(args, cwd) {
+  const { stdout } = await execFileAsync(GIT_BIN, args, {
+    cwd,
+    maxBuffer: 32 * 1024 * 1024,
+    windowsHide: true,
+  });
+  return stdout;
+}
+
+/** git 可执行文件名：环境 PATH 异常时可用 CREDIT_GIT_BIN 指定绝对路径 */
+const GIT_BIN = process.env.CREDIT_GIT_BIN ?? "git";
+
+/**
+ * 分析配置（git 工作区 / PR 提交）**必须持久化**。
+ *
+ * **原因**：输入指纹包含 gitDiff 摘要。若只靠环境变量，一旦重启时忘了设，
+ * git 就不可用 → 指纹变化 → **缓存全部失效并重算**（8 次 LLM，约 8 分钟），
+ * 而用户看到的只是"正在计算…"，完全不知道是被环境变量坑了。
+ *
+ * 优先级：环境变量 > `config.json.analysis` > 默认；首次成功计算后回写。
+ */
+async function loadAnalysisConfig() {
+  try {
+    const raw = await fsp.readFile(path.join(ROOT, "config.json"), "utf8");
+    return JSON.parse(raw)?.analysis ?? {};
+  } catch {
+    return {};
+  }
+}
+
+async function saveAnalysisConfig(patch) {
+  try {
+    let cur = {};
+    try {
+      cur = JSON.parse(await fsp.readFile(path.join(ROOT, "config.json"), "utf8"));
+    } catch {
+      /* 无文件 → 新建 */
+    }
+    cur.analysis = { ...(cur.analysis ?? {}), ...patch };
+    const file = path.join(ROOT, "config.json");
+    const tmp = `${file}.tmp-${process.pid}`;
+    await fsp.writeFile(tmp, JSON.stringify(cur, null, 2), "utf8");
+    await fsp.rename(tmp, file);
+  } catch (e) {
+    console.warn(`[credit] 写 analysis 配置失败：${String(e)}`);
+  }
+}
+
+const ANALYSIS_CFG = await loadAnalysisConfig();
+const WORKSPACE_DIR = process.env.CREDIT_WORKSPACE ?? ANALYSIS_CFG.workspaceDir ?? "";
+const PR_COMMIT = process.env.CREDIT_PR_COMMIT ?? ANALYSIS_CFG.prCommit ?? "HEAD";
+
+console.log(
+  `[credit] analysis: workspace=${WORKSPACE_DIR || "(未配置)"} commit=${PR_COMMIT}` +
+    (WORKSPACE_DIR ? "" : " → git 不可用，相关指标将降级"),
+);
+
+/** 真实 git 实现的 GitPort；git 不可用 / 非仓库时返回 available:false（绝不伪造） */
+const gitPort = {
+  async diff() {
+    if (!WORKSPACE_DIR) return { available: false, files: null, commitCount: 0, reason: "未配置 CREDIT_WORKSPACE" };
+    try {
+      const base = process.env.CREDIT_PR_BASE || `${PR_COMMIT}^`;
+      const [patch, countOut] = await Promise.all([
+        git(["diff", "-U0", "--no-color", base, PR_COMMIT], WORKSPACE_DIR),
+        git(["rev-list", "--count", `${base}..${PR_COMMIT}`], WORKSPACE_DIR),
+      ]);
+      const files = parseUnifiedDiff(patch).map((f) => ({
+        uri: f.uri,
+        added: f.totalAdded,
+        deleted: f.totalDeleted,
+        addedLines: f.addedLines,
+        addedTexts: f.addedTexts,
+      }));
+      return {
+        available: true,
+        files,
+        commitCount: Number(String(countOut).trim()) || 0,
+        base,
+        head: PR_COMMIT,
+      };
+    } catch (e) {
+      console.warn(`[credit] git diff 失败：${String(e?.message ?? e)}`);
+      return { available: false, files: null, commitCount: 0 };
+    }
+  },
+  async commitCount() {
+    const d = await gitPort.diff();
+    return d.commitCount;
+  },
+};
+
+/** FsPort：读 SPEC / 测试文件内容（C3/C7 需要行内容做分析） */
+const fsPort = {
+  async readFile(uri) {
+    try {
+      return await fsp.readFile(uri, "utf8");
+    } catch {
+      // behaviors 里的 uri 可能是相对路径，尝试基于工作区解析
+      if (!WORKSPACE_DIR) return null;
+      try {
+        return await fsp.readFile(path.join(WORKSPACE_DIR, uri), "utf8");
+      } catch {
+        return null;
+      }
+    }
+  },
+};
+
 async function readBehaviors(prId) {
   const file = path.join(ROOT, "behaviors", `${prId}.jsonl`);
   const text = await fsp.readFile(file, "utf8");
@@ -228,6 +347,80 @@ const prApi = {
     };
   },
 
+  /**
+   * P2：指标计算 —— **计算时机在 Task 之后**（先取 TaskGraph，再算 credit）。
+   * 落盘 `pr_credit/<prId>.json`；输入指纹未变则直接读盘。
+   */
+  async credit(prId, query) {
+    if (!prId) return { ok: false, error: "missing prId" };
+    const cacheFile = path.join(ROOT, "pr_credit", `${prId}.json`);
+    const force = query?.get("force") === "1";
+
+    const behaviors = await readBehaviors(prId);
+    if (behaviors.length === 0) return { ok: false, error: "no behaviors for this prId" };
+
+    // —— 依赖 TaskGraph：不得绕过 Task 直接算指标 ——
+    // 注意是 `prApi.graph`（PR 域），不是 `api`（Control 域）；
+    // 且**不传 force** —— credit 的重算不该连带重算 Task。
+    const g = await prApi.graph(prId, null);
+    if (!g.ok) return g;
+
+    const gitDiff = await gitPort.diff();
+    const fp = inputFingerprint({ behaviors, taskGraph: g.graph, gitDiff });
+
+    /**
+     * 缓存未命中原因 —— **必须透出给 UI**。
+     * 否则用户只看到笼统的"正在计算…"，不知道其实是"git 没配好导致指纹变了"这种
+     * 本可避免的重算（重算 = 8 次 LLM ≈ 8 分钟）。
+     */
+    let cacheMiss = null;
+    if (!force) {
+      try {
+        const cached = JSON.parse(await fsp.readFile(cacheFile, "utf8"));
+        if (cached?.generator?.inputFingerprint === fp) {
+          return { ok: true, result: cached, cached: true };
+        }
+        cacheMiss = "输入已变化（行为数 / Task / git 摘要与上次不一致），需重新计算";
+      } catch {
+        cacheMiss = null; // 无缓存文件 → 首次计算，属正常
+      }
+    }
+
+    // git 可用即回写配置：下次启动不依赖环境变量也能命中缓存
+    if (gitDiff.available && WORKSPACE_DIR) {
+      await saveAnalysisConfig({ workspaceDir: WORKSPACE_DIR, prCommit: PR_COMMIT });
+    }
+
+    const llm = await getLlmPort();
+    const llmCfg = await loadLlmConfig();
+    const result = await computeCredit({
+      prId,
+      behaviors,
+      taskGraph: g.graph,
+      llm,
+      gitDiff,
+      git: gitPort,
+      fs: fsPort,
+      llmModel: llmCfg.provider === "openai-compatible" ? llmCfg.openaiCompatible.model : null,
+    });
+
+    try {
+      await fsp.mkdir(path.join(ROOT, "pr_credit"), { recursive: true });
+      const tmp = `${cacheFile}.tmp-${process.pid}`;
+      await fsp.writeFile(tmp, JSON.stringify(result, null, 2), "utf8");
+      await fsp.rename(tmp, cacheFile);
+    } catch (e) {
+      console.warn(`[credit] 写 pr_credit 失败：${String(e)}`);
+    }
+
+    return { ok: true, result, cached: false, cacheMiss };
+  },
+
+  /** 指标树结构（UI 渲染顺序与 i18n 名） */
+  async rules() {
+    return { ok: true, ruleSet: RULESET };
+  },
+
   /** 按需拉取指定 Behavior 明细（点击 Task 展开时用，避免全量传输） */
   async behaviors(prId, query) {
     const ids = new Set((query?.get("ids") ?? "").split(",").filter(Boolean));
@@ -262,7 +455,12 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, await fn());
     }
 
-    // P2-pre：过程建模 API —— /api/pr/<prId>/graph | /behaviors，列表为 /api/pr/list
+    // P2：指标树结构（UI 渲染顺序与 i18n 名）
+    if (pathname === "/api/rules/tree") {
+      return json(res, 200, await prApi.rules());
+    }
+
+    // P2-pre：过程建模 API —— /api/pr/<prId>/graph | /behaviors | /credit，列表为 /api/pr/list
     if (pathname.startsWith("/api/pr/")) {
       const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
       const rest = pathname.replace("/api/pr/", "");

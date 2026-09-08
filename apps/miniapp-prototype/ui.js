@@ -56,6 +56,9 @@ function initThemeToggle() {
     const next = cur === "light" ? "dark" : "light";
     document.documentElement.setAttribute("data-bf-appearance-mode", next);
     btn.textContent = next === "light" ? "Light" : "Dark";
+    // **必须重渲染**：甘特图色块的填充 alpha 随主题取值不同（亮底需抬高下限），
+    // 而渐变字符串是在建 DOM 时算好缓存的 —— 不重渲染则切主题后配色不更新。
+    applyI18n();
   });
   document.documentElement.setAttribute("data-bf-appearance-mode", "dark");
   btn.textContent = "Dark";

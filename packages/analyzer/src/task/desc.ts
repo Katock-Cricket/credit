@@ -120,7 +120,14 @@ export function fallbackDesc(input: DescTaskInput, cfg: TaskConfig): DescResult 
   return { desc: null, taskType: null, source: "rule" };
 }
 
-const SYSTEM_PROMPT = `你是软件工程过程分析助手。下面给出一次 PR 中若干"工作片段"的观测信息，请为每个片段归纳一句目标描述。
+/**
+ * Desc 生成的 system prompt。
+ *
+ * **必须含 `json` 字样**（`ensureJsonMode` 会兜底，但此处显式写出更清晰）：
+ * DeepSeek 系模型的 JSON 模式要求 messages 中出现 json 关键字，否则返回空内容。
+ * 单测 `llm.test.ts` 对此有断言，**改这个模板时不要删掉 "JSON" 二字**。
+ */
+export const SYSTEM_PROMPT = `你是软件工程过程分析助手。下面给出一次 PR 中若干"工作片段"的观测信息，请为每个片段归纳一句目标描述。
 
 要求：
 1. desc：不超过 30 个中文字符，动宾结构，说明这个片段**想做什么**；不要罗列文件名，不要复述命令原文。

@@ -1,27 +1,101 @@
-import { makeCacheKey, readApiKey, validateJson } from "./port.js";
+import { ensureJsonMode, makeCacheKey, readApiKey, validateJson } from "./port.js";
 const defaultSleep = (ms) => new Promise((r) => setTimeout(r, ms));
-/** 从响应文本中取出模型输出内容（兼容纯 JSON 响应与 ```json 围栏） */
+/**
+ * 从响应文本中取出模型输出内容。
+ *
+ * **关键分支纪律**：响应**是**合法 JSON 却取不到 `choices[0].message.content` 时，
+ * 必须返回 `null`（判为 `invalid-json`），**不得回退成整个响应体** ——
+ * 否则网关的错误响应（`{"error":…}`）会被当成"合法 JSON 只是过不了 schema"，
+ * 把**真实故障伪装成 schema 校验失败**，排障时极易误导（2026-09-07 排查所得）。
+ *
+ * 只有响应**不是**合法 JSON 时（网关错误页等纯文本），才按纯文本处理。
+ */
 export function extractContent(rawText) {
-    let text = rawText;
+    const stripFence = (t) => {
+        const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
+        return (fence?.[1] ?? t).trim();
+    };
     try {
         const parsed = JSON.parse(rawText);
         const c = parsed?.choices?.[0]?.message?.content;
-        if (typeof c === "string")
-            text = c;
+        if (typeof c !== "string")
+            return null;
+        return stripFence(c) || null;
     }
     catch {
         // 非 JSON 响应（如网关错误页）：按纯文本继续处理
+        return stripFence(rawText) || null;
     }
-    const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (fence?.[1])
-        text = fence[1];
-    const trimmed = text.trim();
-    return trimmed || null;
+}
+/**
+ * 宽容 JSON 解析。
+ *
+ * **为何需要**：即使声明了 `response_format: json_object`，模型仍可能
+ * 1. 在 JSON 前后带说明文字（"好的，结果如下：{...}"）；
+ * 2. 被输入里的代码带偏，直接续写代码片段（实测：SPEC 里全是 Rust，
+ *    模型返回 `rust struct CodecProbeResult {...}`）。
+ *
+ * 第 1 种可以救回来，第 2 种救不回 —— 但**不应该因此判 error**，
+ * 故此处尽力提取平衡的第一个 `{...}` / `[...]`。
+ */
+export function parseLooseJson(text) {
+    const t = String(text ?? "")
+        .replace(/```(?:json)?/gi, "")
+        .trim();
+    if (!t)
+        return null;
+    try {
+        return JSON.parse(t);
+    }
+    catch {
+        /* 继续尝试定位片段 */
+    }
+    for (const [open, close] of [
+        ["{", "}"],
+        ["[", "]"],
+    ]) {
+        const start = t.indexOf(open);
+        if (start < 0)
+            continue;
+        let depth = 0;
+        let inStr = false;
+        let esc = false;
+        for (let i = start; i < t.length; i++) {
+            const c = t[i];
+            if (inStr) {
+                if (esc)
+                    esc = false;
+                else if (c === "\\")
+                    esc = true;
+                else if (c === '"')
+                    inStr = false;
+                continue;
+            }
+            if (c === '"') {
+                inStr = true;
+                continue;
+            }
+            if (c === open)
+                depth++;
+            else if (c === close) {
+                depth--;
+                if (depth === 0) {
+                    try {
+                        return JSON.parse(t.slice(start, i + 1));
+                    }
+                    catch {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    return null;
 }
 export function createOpenAILlmPort(opts) {
     const envName = opts.apiKeyEnv ?? "OPENAI_API_KEY";
     const env = opts.env;
-    const timeoutMs = opts.timeoutMs ?? 60_000;
+    const timeoutMs = opts.timeoutMs ?? 180_000;
     const retry = Math.max(0, opts.retry ?? 1);
     const cache = opts.cache ?? null;
     const fetchImpl = opts.fetchImpl ??
@@ -48,10 +122,11 @@ export function createOpenAILlmPort(opts) {
                 },
                 body: JSON.stringify({
                     model,
-                    messages: [
+                    // DeepSeek 系：messages 必须含 "json" 字样，否则 JSON 模式不生效（见 port.ensureJsonMode）
+                    messages: ensureJsonMode([
                         { role: "system", content: spec.system },
                         { role: "user", content: spec.user },
-                    ],
+                    ]),
                     response_format: { type: "json_object" },
                     temperature: 0,
                 }),
@@ -83,11 +158,15 @@ export function createOpenAILlmPort(opts) {
                 json = JSON.parse(content);
             }
             catch {
-                return {
-                    ok: false,
-                    reason: "invalid-json",
-                    message: `模型输出非合法 JSON：${content.slice(0, 200)}`,
-                };
+                // 宽容解析：模型可能在 JSON 前后带说明文字
+                json = parseLooseJson(content);
+                if (json == null) {
+                    return {
+                        ok: false,
+                        reason: "invalid-json",
+                        message: `模型输出非合法 JSON：${content.slice(0, 200)}`,
+                    };
+                }
             }
             const err = validateJson(json, spec.schema);
             if (err)

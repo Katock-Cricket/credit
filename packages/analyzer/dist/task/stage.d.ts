@@ -4,13 +4,16 @@
  * **七阶段**（D-020，含「AI软件测试」）：SPEC工程 / 测试方案准备 / AI代码生成 /
  * AI软件测试 / AI代码修复 / 人工补测验证 / AI Review，另加 `unknown` 兜底。
  *
- * **归类优先级**（规则命中即止，SPEC §5.2）：
+ * **归类优先级**（规则命中即止，SPEC §5.2；**顺序即语义，改序须同步 SPEC 与用例**）：
  * 1. Review 会话覆盖 → `ai-review`
- * 2. 含 SPEC 文件编辑 → `spec-engineering`
- * 3. 含测试方案/测试文件编辑（**且不在修复窗口内**）→ `test-planning`
- * 4. 失败测试运行之后的修复性 Prompt/编辑 → `ai-fix`
- * 5. 含测试命令运行 → `ai-testing`
- * 6. 含人工验证语义 Prompt → `manual-verification`
+ * 2. 修复窗口内 + 修复语义 Prompt → `ai-fix`
+ *    （先于人工验证：「人工验证**发现**问题 → 诊断」的主线是修复不是验证通过，
+ *     否则 T9 会被误判为验证通过）
+ * 3. 人工验证语义 Prompt → `manual-verification`
+ * 4. Dev 触发的测试运行（或窗口内无源码编辑）→ `ai-testing`
+ *    （先于文档类规则：否则"跑测试 + 顺手看了眼报告"会被 .md 活动抢判成 SPEC 工程）
+ * 5. 测试方案/测试文件编辑（**且不在修复窗口内**）→ `test-planning`
+ * 6. SPEC 文件活动（**含阅读**）或规格/调研语义 Prompt → `spec-engineering`
  * 7. 其余 → `ai-code-generation`
  *
  * **spans**：Task 内再按语义锚点（prompt / 测试命令 / review 边界）划分子段，

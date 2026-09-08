@@ -17,3 +17,20 @@ export * from "./task/files.js";
 export * from "./task/spectrum.js";
 export * from "./task/build.js";
 export * from "./process/index.js";
+// ───────── P2：指标计算（引擎 / 计算器 / 聚合 / 共享组件） ─────────
+export * from "./credit/types.js";
+export * from "./credit/config.js";
+export * from "./credit/context.js";
+export * from "./credit/engine.js";
+export * from "./credit/aggregate.js";
+export * from "./credit/compute.js";
+export * from "./shared/diff-parser.js";
+export * from "./shared/reading.js";
+export * from "./shared/core-diff.js";
+export * from "./shared/spec-docs.js";
+export * from "./shared/rtm.js";
+export * from "./shared/llm-json.js";
+export * from "./shared/uri.js";
+export * from "./shared/spec-quality.js";
+// 指标树（rules v2）—— UI 渲染顺序与 i18n 名由它提供，避免 UI 侧另建一份结构
+export { RULESET, RULESET_VERSION, PR_CREDIT_TREE, calculatorFile, leaves, findNode, walk, } from "@credit/rules";

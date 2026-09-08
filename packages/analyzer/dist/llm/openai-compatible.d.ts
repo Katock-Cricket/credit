@@ -38,6 +38,27 @@ export interface OpenAILlmOptions {
     fetchImpl?: FetchLike;
     sleep?: (ms: number) => Promise<void>;
 }
-/** 从响应文本中取出模型输出内容（兼容纯 JSON 响应与 ```json 围栏） */
+/**
+ * 从响应文本中取出模型输出内容。
+ *
+ * **关键分支纪律**：响应**是**合法 JSON 却取不到 `choices[0].message.content` 时，
+ * 必须返回 `null`（判为 `invalid-json`），**不得回退成整个响应体** ——
+ * 否则网关的错误响应（`{"error":…}`）会被当成"合法 JSON 只是过不了 schema"，
+ * 把**真实故障伪装成 schema 校验失败**，排障时极易误导（2026-09-07 排查所得）。
+ *
+ * 只有响应**不是**合法 JSON 时（网关错误页等纯文本），才按纯文本处理。
+ */
 export declare function extractContent(rawText: string): string | null;
+/**
+ * 宽容 JSON 解析。
+ *
+ * **为何需要**：即使声明了 `response_format: json_object`，模型仍可能
+ * 1. 在 JSON 前后带说明文字（"好的，结果如下：{...}"）；
+ * 2. 被输入里的代码带偏，直接续写代码片段（实测：SPEC 里全是 Rust，
+ *    模型返回 `rust struct CodecProbeResult {...}`）。
+ *
+ * 第 1 种可以救回来，第 2 种救不回 —— 但**不应该因此判 error**，
+ * 故此处尽力提取平衡的第一个 `{...}` / `[...]`。
+ */
+export declare function parseLooseJson(text: string): unknown | null;
 export declare function createOpenAILlmPort(opts: OpenAILlmOptions): LlmPort;

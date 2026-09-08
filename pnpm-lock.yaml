@@ -47,6 +47,9 @@ importers:
       '@credit/protocol':
         specifier: file:../protocol
         version: link:../protocol
+      '@credit/rules':
+        specifier: workspace:*
+        version: link:../rules
     devDependencies:
       typescript:
         specifier: ^5.6.0
@@ -66,6 +69,16 @@ importers:
     devDependencies:
       typescript:
         specifier: ^5.6.0
+        version: 5.9.3
+
+  packages/rules:
+    dependencies:
+      '@credit/protocol':
+        specifier: file:../protocol
+        version: link:../protocol
+    devDependencies:
+      typescript:
+        specifier: ^5.9.2
         version: 5.9.3
 
 packages:

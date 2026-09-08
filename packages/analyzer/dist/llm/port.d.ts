@@ -59,6 +59,28 @@ export interface LlmPort {
     /** 发起一次结构化调用；**永不抛异常** */
     complete(spec: LlmCallSpec): Promise<LlmResult>;
 }
+/**
+ * DeepSeek 系模型 JSON 模式的**隐藏硬约束**：`messages` 中必须出现 `json` 字样
+ * （不区分大小写），否则即使声明了 `response_format: { type: 'json_object' }`，
+ * 模型也可能返回空内容或一段无关结构的纯文本。
+ *
+ * **实测（2026-09-07，`deepseek-v4-flash`）**：
+ * - prompt 含 `json` → 正确返回 `{"tasks":[…]}`；
+ * - prompt 不含 `json` → 返回 `{"thoughts":[…],"response":""}`，
+ *   过不了 schema 校验，且耗时从 ~10s 涨到 ~125s（模型在"思考"该输出什么）。
+ *
+ * 该约束对调用方完全不可见（改 prompt 时极易无意破坏），故在此统一兜底：
+ * 任何一次调用发出前都确保 messages 中含 `json` 关键字。
+ */
+export declare const JSON_MODE_HINT = "\uFF08\u8BF7\u4E25\u683C\u4EE5 json \u683C\u5F0F\u8F93\u51FA\uFF0C\u4E0D\u8981\u8F93\u51FA\u4EFB\u4F55\u989D\u5916\u6587\u5B57\uFF09";
+export interface ChatMessage {
+    role: "system" | "user";
+    content: string;
+}
+/** messages 中是否已含 json 关键字（不区分大小写） */
+export declare function hasJsonKeyword(messages: ChatMessage[]): boolean;
+/** 确保 messages 满足 JSON 模式约束：缺 `json` 关键字时补在 system 上（无 system 则新增一条） */
+export declare function ensureJsonMode(messages: ChatMessage[]): ChatMessage[];
 export interface LlmConfig {
     provider: LlmProviderId;
     openaiCompatible: {

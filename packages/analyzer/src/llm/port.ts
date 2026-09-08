@@ -59,6 +59,46 @@ export interface LlmPort {
   complete(spec: LlmCallSpec): Promise<LlmResult>;
 }
 
+/**
+ * DeepSeek 系模型 JSON 模式的**隐藏硬约束**：`messages` 中必须出现 `json` 字样
+ * （不区分大小写），否则即使声明了 `response_format: { type: 'json_object' }`，
+ * 模型也可能返回空内容或一段无关结构的纯文本。
+ *
+ * **实测（2026-09-07，`deepseek-v4-flash`）**：
+ * - prompt 含 `json` → 正确返回 `{"tasks":[…]}`；
+ * - prompt 不含 `json` → 返回 `{"thoughts":[…],"response":""}`，
+ *   过不了 schema 校验，且耗时从 ~10s 涨到 ~125s（模型在"思考"该输出什么）。
+ *
+ * 该约束对调用方完全不可见（改 prompt 时极易无意破坏），故在此统一兜底：
+ * 任何一次调用发出前都确保 messages 中含 `json` 关键字。
+ */
+export const JSON_MODE_HINT = "（请严格以 json 格式输出，不要输出任何额外文字）";
+
+export interface ChatMessage {
+  role: "system" | "user";
+  content: string;
+}
+
+/** messages 中是否已含 json 关键字（不区分大小写） */
+export function hasJsonKeyword(messages: ChatMessage[]): boolean {
+  return messages.some((m) => /\bjson\b/i.test(m.content ?? ""));
+}
+
+/** 确保 messages 满足 JSON 模式约束：缺 `json` 关键字时补在 system 上（无 system 则新增一条） */
+export function ensureJsonMode(messages: ChatMessage[]): ChatMessage[] {
+  if (hasJsonKeyword(messages)) return messages;
+  const sysIdx = messages.findIndex((m) => m.role === "system");
+  if (sysIdx >= 0) {
+    const next = [...messages];
+    next[sysIdx] = {
+      role: "system",
+      content: `${messages[sysIdx]!.content}\n${JSON_MODE_HINT}`,
+    };
+    return next;
+  }
+  return [{ role: "system", content: JSON_MODE_HINT }, ...messages];
+}
+
 // ───────────────────────── 配置 ─────────────────────────
 
 export interface LlmConfig {
@@ -91,7 +131,12 @@ export const DEFAULT_LLM_CONFIG: LlmConfig = {
     apiKeyEnv: "OPENAI_API_KEY",
   },
   bitfun: { model: "fast", fallbackModel: "primary" },
-  timeoutMs: 60_000,
+  /**
+   * 180s —— **推理模型（reasoning）单次调用实测 47s**，原 60s 余量仅 13s，
+   * 网络一波动就超时（`deepseek-v4-flash` 的 completion 中 reasoning_tokens 占绝大部分）。
+   * 超时属可重试失败，但重试会让单次建模耗时翻倍，故默认直接给足。
+   */
+  timeoutMs: 180_000,
   retryPerModel: 1,
   cacheEnabled: true,
   descMaxInputChars: 1200,

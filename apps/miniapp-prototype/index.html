@@ -120,6 +120,24 @@
               <div id="analytics" class="analytics"></div>
             </div>
 
+            <!-- ── P2：PR_Credit 指标树（计算时机在 Task 之后） ── -->
+            <div class="panel">
+              <div class="row" style="justify-content: space-between; align-items: baseline">
+                <h2 data-i18n="lblCreditTree">PR_Credit 指标树</h2>
+                <button
+                  id="credit-recompute"
+                  data-i18n="btnRecomputeCredit"
+                  style="flex: none; min-width: 120px"
+                  hidden
+                >
+                  重新计算
+                </button>
+              </div>
+              <div id="credit-summary" class="credit-summary" hidden></div>
+              <div id="credit-tree" class="credit-tree"></div>
+              <div id="credit-hint" class="hint" hidden></div>
+            </div>
+
             <div id="detail" class="detail" hidden></div>
           </main>
         </div>

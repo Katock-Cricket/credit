@@ -16,7 +16,8 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@credit/protocol": "file:../protocol"
+    "@credit/protocol": "file:../protocol",
+    "@credit/rules": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.6.0"

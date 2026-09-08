@@ -15,10 +15,14 @@ import {
   validateJson,
   readApiKey,
   makeCacheKey,
+  ensureJsonMode,
+  hasJsonKeyword,
+  JSON_MODE_HINT,
   DEFAULT_LLM_CONFIG,
   type LlmCallSpec,
   type FetchLike,
 } from "./index.js";
+import { SYSTEM_PROMPT } from "../task/desc.js";
 
 const spec = (over: Partial<LlmCallSpec> = {}): LlmCallSpec => ({
   metricId: "task-desc",
@@ -391,5 +395,143 @@ describe("BitfunLlmPort", () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toBe("error");
     expect(ai.complete).toHaveBeenCalledTimes(2); // fast + primary
+  });
+});
+
+// ───────── JSON 模式请求契约（2026-09-07 真实 API 排查后固化） ─────────
+
+/**
+ * 背景：P2-pre 验收时"6 次 LLM 调用全部失败"，初判为"模型不支持 json_object"。
+ * 真实 API 排查推翻该结论 —— 四组对照全部返回 200 且有内容，真正原因有二：
+ * ① DeepSeek 的 JSON 模式要求 messages 含 `json` 字样（隐藏约束）；
+ * ② 推理模型单批耗时 47s，逼近 60s 超时线。
+ * 以下用例把这两点固化为回归防线。
+ */
+describe("JSON 模式请求契约（DeepSeek 隐藏约束）", () => {
+  const env = { OPENAI_API_KEY: "sk-test" };
+
+  const okFetch = (content: string) =>
+    vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ choices: [{ message: { content } }] }),
+    })) as unknown as FetchLike;
+
+  const sentBody = (f: unknown) =>
+    JSON.parse(
+      (f as { mock: { calls: Array<[string, { body: string }]> } }).mock.calls[0]![1].body,
+    ) as {
+      model: string;
+      response_format: { type: string };
+      messages: Array<{ role: string; content: string }>;
+    };
+
+  it("请求体带 response_format: json_object 与指定 model", async () => {
+    const f = okFetch('{"tasks":[]}');
+    const p = createOpenAILlmPort({
+      baseUrl: "https://x/v1",
+      model: "m",
+      env,
+      fetchImpl: f,
+      retry: 0,
+    });
+    await p.complete(spec());
+    const body = sentBody(f);
+    expect(body.response_format).toEqual({ type: "json_object" });
+    expect(body.model).toBe("m");
+  });
+
+  it("messages 缺 json 字样 → 自动补齐到 system（否则模型返回空/纯文本）", async () => {
+    const f = okFetch('{"tasks":[]}');
+    const p = createOpenAILlmPort({
+      baseUrl: "https://x/v1",
+      model: "m",
+      env,
+      fetchImpl: f,
+      retry: 0,
+    });
+    await p.complete(spec({ system: "你是助手", user: "请归纳" }));
+    const body = sentBody(f);
+    const all = body.messages.map((m) => m.content).join("\n");
+    expect(/\bjson\b/i.test(all)).toBe(true);
+    expect(body.messages[0]!.content).toContain(JSON_MODE_HINT);
+  });
+
+  it("已含 json 时不重复追加（幂等，避免污染 prompt）", async () => {
+    const f = okFetch('{"tasks":[]}');
+    const p = createOpenAILlmPort({
+      baseUrl: "https://x/v1",
+      model: "m",
+      env,
+      fetchImpl: f,
+      retry: 0,
+    });
+    await p.complete(spec({ system: "你是助手，输出 JSON", user: "请归纳" }));
+    const body = sentBody(f);
+    expect(body.messages[0]!.content).toBe("你是助手，输出 JSON");
+  });
+
+  it("Desc 的 SYSTEM_PROMPT 满足 json 约束（防改模板时误删）", () => {
+    expect(hasJsonKeyword([{ role: "system", content: SYSTEM_PROMPT }])).toBe(true);
+  });
+
+  it("ensureJsonMode：无 system 时新增一条 system 而非丢消息", () => {
+    const out = ensureJsonMode([{ role: "user", content: "hi" }]);
+    expect(out).toHaveLength(2);
+    expect(out[0]!.role).toBe("system");
+    expect(out[0]!.content).toBe(JSON_MODE_HINT);
+    expect(out[1]!.content).toBe("hi");
+  });
+
+  it("超时 → reason=timeout（**不是** invalid-json），便于定位推理模型慢", async () => {
+    const f = vi.fn(
+      async (_u: string, init: { signal?: AbortSignal }) =>
+        new Promise<never>((_res, rej) => {
+          init.signal?.addEventListener("abort", () => {
+            const e = new Error("aborted");
+            e.name = "AbortError";
+            rej(e);
+          });
+        }),
+    ) as unknown as FetchLike;
+    const p = createOpenAILlmPort({
+      baseUrl: "https://x/v1",
+      model: "m",
+      env,
+      fetchImpl: f,
+      timeoutMs: 10,
+      retry: 0,
+      sleep: async () => {},
+    });
+    const r = await p.complete(spec());
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toBe("timeout");
+  });
+
+  it("取不到 content → invalid-json 且错误信息含原始响应片段（便于排障）", async () => {
+    // content 为空串：是合法 JSON 但无内容 → 应判 invalid-json，
+    // **不能**回退成整个响应体后报成 schema 失败（那会掩盖真实故障）
+    const f = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () => '{"choices":[{"message":{"content":""}}]}',
+    })) as unknown as FetchLike;
+    const p = createOpenAILlmPort({
+      baseUrl: "https://x/v1",
+      model: "m",
+      env,
+      fetchImpl: f,
+      retry: 0,
+    });
+    const r = await p.complete(spec());
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toBe("invalid-json");
+      expect(r.message).toContain("choices");
+    }
+  });
+
+  it("默认超时已上调到 180s（推理模型单批实测 47s，60s 余量不足）", () => {
+    expect(DEFAULT_LLM_CONFIG.timeoutMs).toBeGreaterThanOrEqual(120_000);
   });
 });

@@ -8,6 +8,7 @@ import { t, tStage, tTaskType } from "./i18n.js";
 import { renderGantt, fmtDur, resetZoom } from "./gantt.js";
 import { renderAnalytics } from "./analytic-layer.js";
 import { describeBehavior } from "./behavior-summary.js";
+import { renderCreditTree, renderCreditSummary } from "./credit-tree.js";
 
 const LAYER_NAMES = {
   "ai-involvement": { name: { "zh-CN": "AI 参与度光谱" } },
@@ -26,6 +27,7 @@ export function createHistoryView(root) {
   let graph = null;
   let selectedTask = null;
   let currentPrId = null;
+  let credit = null;
 
   // ── PR 列表 ──
   async function loadList() {
@@ -67,6 +69,51 @@ export function createHistoryView(root) {
     });
   }
 
+  /**
+   * P2：加载指标计算结果（**计算时机在 Task 之后** —— 依赖已建好的 TaskGraph）。
+   * 计算可能较慢（含 LLM），故**不阻塞甘特图渲染**。
+   */
+  async function loadCredit(prId, { force = false } = {}) {
+    const treeHost = $("credit-tree");
+    const sumHost = $("credit-summary");
+    const hint = $("credit-hint");
+    sumHost.hidden = true;
+    hint.hidden = true;
+    treeHost.innerHTML = `<div class="empty">${t("lblCreditComputing")}</div>`;
+    try {
+      const data = await getJson(
+        `/api/pr/${encodeURIComponent(prId)}/credit${force ? "?force=1" : ""}`,
+      );
+      credit = data.result;
+      renderCreditSummary(sumHost, credit);
+      renderCreditTree(treeHost, credit, { onTaskJump: jumpToTask });
+      $("credit-recompute").hidden = false;
+      /**
+       * 把"为什么慢"说清楚：
+       * - git 不可用 → 相关指标降级；
+       * - 缓存未命中（输入变了）→ 真的重算了一遍（用户会奇怪"我不是算过吗"）。
+       */
+      const notes = [];
+      if (!credit.diagnostics?.gitDiffAvailable) notes.push(t("lblGitOff"));
+      if (data.cacheMiss) notes.push(`${t("lblCreditRecomputed")}：${data.cacheMiss}`);
+      if (notes.length > 0) {
+        hint.textContent = notes.join("；");
+        hint.hidden = false;
+      }
+    } catch (e) {
+      credit = null;
+      treeHost.innerHTML = `<div class="empty">${t("errLoadFailed")}${e.message}</div>`;
+    }
+  }
+
+  /** 证据里的 Task 引用 → 定位到甘特图并展开详情（把指标与过程时间线打通） */
+  function jumpToTask(taskId) {
+    const task = graph?.tasks?.find((x) => x.id === taskId);
+    if (!task) return;
+    selectTask(task);
+    $("detail")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
   // ── 选中 PR → 加载建模结果 ──
   async function selectPr(prId, { force = false } = {}) {
     currentPrId = prId;
@@ -86,6 +133,8 @@ export function createHistoryView(root) {
       renderModelHint();
       renderGantt(host, graph, { onSelect: selectTask });
       $("recompute").hidden = false;
+      // 指标计算在 Task 之后；不 await，避免 LLM 判定阻塞时间线渲染
+      loadCredit(prId, { force });
     } catch (e) {
       host.innerHTML = `<div class="empty">${t("errLoadFailed")}${e.message}</div>`;
       $("analytics").innerHTML = "";
@@ -249,6 +298,10 @@ export function createHistoryView(root) {
     if (currentPrId) selectPr(currentPrId, { force: true });
   });
 
+  $("credit-recompute").addEventListener("click", () => {
+    if (currentPrId) loadCredit(currentPrId, { force: true });
+  });
+
   return {
     refresh: loadList,
     start() {
@@ -259,13 +312,20 @@ export function createHistoryView(root) {
       root.querySelectorAll("[data-i18n]").forEach((el) => {
         el.textContent = t(el.dataset.i18n);
       });
-      if (graph) {
-        renderGantt($("gantt-host"), graph, {
-          onSelect: selectTask,
-          selectedId: selectedTask?.id,
-        });
-        renderModelHint();
-        if (selectedTask) renderDetail(selectedTask);
+      if (!graph) return;
+      renderModelHint();
+      // 有选中 Task 时走 selectTask 全量重渲染 —— 它内部会 renderGantt + renderDetail
+      // **并重新拉取行为明细**。若只调 renderDetail，明细容器会被重建为"加载中"
+      // 且无人再填数据（切主题时暴露过这个 bug）。
+      if (selectedTask) {
+        selectTask(selectedTask);
+      } else {
+        renderGantt($("gantt-host"), graph, { onSelect: selectTask });
+      }
+      // 指标树同样需要重渲染（名称与状态徽标都走 i18n）
+      if (credit) {
+        renderCreditSummary($("credit-summary"), credit);
+        renderCreditTree($("credit-tree"), credit, { onTaskJump: jumpToTask });
       }
     },
   };

@@ -6,3 +6,6 @@
 /packages/protocol/node_modules
 /packages/protocol/node_modules
 /packages/analyzer/dist
+/packages/rules/node_modules
+/packages/rules/dist
+/packages/analyzer/node_modules

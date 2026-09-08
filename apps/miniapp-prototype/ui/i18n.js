@@ -104,6 +104,45 @@ export const MESSAGES = {
   },
   errLoadFailed: { "zh-CN": "加载失败：", "en-US": "Load failed: " },
 
+  // ── P2 · 指标树 ──
+  lblCreditTree: { "zh-CN": "PR_Credit 指标树", "en-US": "PR_Credit Metric Tree" },
+  btnRecomputeCredit: { "zh-CN": "重新计算", "en-US": "Recompute" },
+  lblNoCredit: { "zh-CN": "暂无评分结果", "en-US": "No score yet" },
+  // 实测：8 次 LLM 调用（推理模型）合计可达数分钟，"数十秒"是严重低估，会让人以为卡死
+  lblCreditComputing: {
+    "zh-CN": "正在计算（含 LLM 判定，首次约需数分钟）…",
+    "en-US": "Computing (incl. LLM; first run may take several minutes)…",
+  },
+  lblCreditRecomputed: {
+    "zh-CN": "本次为重新计算",
+    "en-US": "Recomputed",
+  },
+  lblEvidence: { "zh-CN": "证据", "en-US": "Evidence" },
+  lblFromProc: {
+    "zh-CN": "Dev_Credit 未接入（P3），PR_Credit = Proc_Credits",
+    "en-US": "Dev_Credit not available (P3); PR_Credit = Proc_Credits",
+  },
+  lblGitOff: {
+    "zh-CN": "未取到 git diff，相关指标按不适用或保守分处理",
+    "en-US": "git diff unavailable; related metrics excluded or conservative",
+  },
+  lblWeighted: {
+    "zh-CN": "（权重已重分配）",
+    "en-US": "(weights redistributed)",
+  },
+  stPending: { "zh-CN": "待接入", "en-US": "Pending" },
+  stExcluded: { "zh-CN": "不适用", "en-US": "N/A" },
+  stNoEvidence: { "zh-CN": "无证据", "en-US": "No evidence" },
+  stDegraded: { "zh-CN": "数据不足", "en-US": "Insufficient" },
+  stError: { "zh-CN": "计算异常", "en-US": "Error" },
+  evBehavior: { "zh-CN": "行为", "en-US": "Behavior" },
+  evTask: { "zh-CN": "工作片段", "en-US": "Task" },
+  evFile: { "zh-CN": "文件", "en-US": "File" },
+  evPrompt: { "zh-CN": "对话", "en-US": "Prompt" },
+  evTestRun: { "zh-CN": "测试运行", "en-US": "Test run" },
+  evLlm: { "zh-CN": "LLM 判定", "en-US": "LLM" },
+  evNote: { "zh-CN": "说明", "en-US": "Note" },
+
   // 甘特图缩放
   hintZoom: {
     "zh-CN": "Ctrl + 滚轮缩放 · 拖拽平移 · 双击重置",
