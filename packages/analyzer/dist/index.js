@@ -32,5 +32,7 @@ export * from "./shared/rtm.js";
 export * from "./shared/llm-json.js";
 export * from "./shared/uri.js";
 export * from "./shared/spec-quality.js";
+// ───────── P3：画像层（Dev_Profile / Dev_Credit）─────────
+export * from "./profile/index.js";
 // 指标树（rules v2）—— UI 渲染顺序与 i18n 名由它提供，避免 UI 侧另建一份结构
 export { RULESET, RULESET_VERSION, PR_CREDIT_TREE, calculatorFile, leaves, findNode, walk, } from "@credit/rules";

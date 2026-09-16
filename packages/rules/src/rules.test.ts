@@ -32,10 +32,10 @@ const procTree = PR_CREDIT_TREE.children!.find((c) => c.id === "procCredits")!;
 const devTree = PR_CREDIT_TREE.children!.find((c) => c.id === "devCredit")!;
 
 describe("指标树结构", () => {
-  // 37 = 38 − 1：`gen.acceptLines` 于 2026-09-08 退出分数框架（D-030）
-  it("Proc_Credits 含 37 个叶子；全树 41（另含 Dev 4 项，留 P3）", () => {
-    expect(leaves(procTree)).toHaveLength(37);
-    expect(leaves()).toHaveLength(41);
+  // 36 = 38 − 2：`gen.acceptLines`（D-033）、`gen.verify.cursorNc`（D-035）先后退出分数框架
+  it("Proc_Credits 含 36 个叶子；全树 40（另含 Dev 4 项，留 P3）", () => {
+    expect(leaves(procTree)).toHaveLength(36);
+    expect(leaves()).toHaveLength(40);
   });
 
   it("六个外部工具桩标记正确（D-029）", () => {
@@ -53,8 +53,8 @@ describe("指标树结构", () => {
       expect(s.stub!.provider).toBeTruthy();
       expect(s.metric).toBeUndefined();
     }
-    // 实现 = 37 - 6 = 31
-    expect(leaves(procTree).filter((n) => !n.stub)).toHaveLength(31);
+    // 实现 = 36 - 6 = 30
+    expect(leaves(procTree).filter((n) => !n.stub)).toHaveLength(30);
   });
 
   it("id 全树唯一", () => {

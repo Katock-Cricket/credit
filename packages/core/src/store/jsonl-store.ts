@@ -15,6 +15,20 @@ import type { Behavior, PrSession, CreditRawEvent } from "@credit/protocol";
 import { PROTOCOL_VERSION, normalizeToCurrent } from "@credit/protocol";
 import { nodeFsPort, joinPath, type FsPort } from "../fs-port.js";
 
+/**
+ * 原子写临时文件的后缀。
+ *
+ * **必须浏览器安全**：core 同时运行在 WebUI 渲染进程（采集桥）与 Node（离线/原型）。
+ * 直接写 `process.pid` 会在 WebView 里抛 `ReferenceError: process is not defined` ——
+ * 而 `writeSession()` 正是 `credit.start` 的必经路径，导致"点开始记录直接失败"
+ * （P4 冒烟暴露；此前 `control-api` 从 MiniApp 不可达，故这条路径从未被走到）。
+ */
+function tmpSuffix(): string {
+  const p = (globalThis as { process?: { pid?: number } }).process;
+  if (p && typeof p.pid === "number") return String(p.pid);
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export interface StoreOptions {
   /** 根目录；默认 <home>/.bitfun/credit */
   rootDir?: string;
@@ -186,7 +200,7 @@ export class BehaviorStore {
   /** 原子写 session.json（临时文件 rename，§5.2） */
   async writeSession(session: PrSession): Promise<void> {
     const file = joinPath(this.rootDir, "session.json");
-    const tmp = joinPath(this.rootDir, `.session.json.tmp.${process.pid}`);
+    const tmp = joinPath(this.rootDir, `.session.json.tmp.${tmpSuffix()}`);
     const data = JSON.stringify(session, null, 2);
     await this.fs.writeFile(tmp, data);
     await this.fs.rename(tmp, file);

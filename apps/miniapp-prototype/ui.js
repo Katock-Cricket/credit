@@ -9,10 +9,12 @@
 import { t, getLocale, setLocale } from "./ui/i18n.js";
 import { createControlView } from "./ui/view-control.js";
 import { createHistoryView } from "./ui/view-history.js";
+import { createProfileView } from "./ui/view-profile.js";
 
 const VIEWS = {
   control: null,
   history: null,
+  profile: null,
 };
 
 let active = "control";
@@ -67,6 +69,7 @@ function initThemeToggle() {
 function init() {
   VIEWS.control = createControlView(document.getElementById("view-control"));
   VIEWS.history = createHistoryView(document.getElementById("view-history"));
+  VIEWS.profile = createProfileView(document.getElementById("view-profile"));
 
   document.querySelectorAll(".tab").forEach((el) => {
     el.addEventListener("click", () => switchTab(el.dataset.tab));

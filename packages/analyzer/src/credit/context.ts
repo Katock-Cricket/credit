@@ -18,6 +18,8 @@ import { loadSpecDocs, collectSpecUris, isTestUri } from "../shared/spec-docs.js
 import { collectFileUris, resolveGitUri, normUri, canonicalUri } from "../shared/uri.js";
 import { buildRtm, extractTestCases, type TestCaseRef } from "../shared/rtm.js";
 import { buildSpecQuality, type SpecQualityJudgement } from "../shared/spec-quality.js";
+import { extractPrKeywords } from "../profile/pr-keywords.js";
+import type { DevProfile } from "../profile/types.js";
 import type {
   CoreDiffLineSet,
   FsPort,
@@ -77,6 +79,8 @@ export interface MetricContext {
   git: GitPort | null;
   fs: FsPort | null;
   config: CreditConfig;
+  /** Dev_Profile（P3）；null = Dev_Credit 整组不适用（引擎前置） */
+  profile: DevProfile | null;
   /** 可写的诊断计数（LLM 调用次数等，供 diagnostics） */
   stats: { llmCalls: number; llmFallback: number };
 
@@ -99,6 +103,11 @@ export interface MetricContext {
    * 三个计算器共享它 —— 避免同一份 SPEC 上传三遍。
    */
   specQuality(): Promise<SpecQualityJudgement>;
+  /**
+   * 当前 PR 关键词（P3，D-042 共享槽）：熟练度 / 行数档计分与 F2 增量更新共用。
+   * **仅 profile 存在时才会被消费**（懒加载），否则永不触发 LLM。
+   */
+  profileKeywords(): Promise<string[]>;
 }
 
 export interface CreateContextOptions {
@@ -111,6 +120,7 @@ export interface CreateContextOptions {
   git?: GitPort | null;
   fs?: FsPort | null;
   config?: Partial<CreditConfig>;
+  profile?: DevProfile | null;
 }
 
 export function createContext(opts: CreateContextOptions): MetricContext {
@@ -127,6 +137,7 @@ export function createContext(opts: CreateContextOptions): MetricContext {
   let _testCases: Promise<TestCaseRef[]> | null = null;
   let _rtm: Promise<RtmMatrix> | null = null;
   let _specQuality: Promise<SpecQualityJudgement> | null = null;
+  let _profileKeywords: Promise<string[]> | null = null;
   let _testUris: string[] | null = null;
 
   const gitFiles = gitDiff.files?.map((f) => f.uri) ?? [];
@@ -166,6 +177,7 @@ export function createContext(opts: CreateContextOptions): MetricContext {
     git: opts.git ?? null,
     fs: opts.fs ?? null,
     config: cfg,
+    profile: opts.profile ?? null,
     stats: { llmCalls: 0, llmFallback: 0 },
 
     stages: () => opts.taskGraph.stages,
@@ -250,6 +262,22 @@ export function createContext(opts: CreateContextOptions): MetricContext {
         })();
       }
       return _specQuality;
+    },
+
+    profileKeywords: () => {
+      if (!_profileKeywords) {
+        _profileKeywords = (async () => {
+          ctx.stats.llmCalls++; // D-042：每 PR 只提取一次，计分与 F2 增量更新共享
+          const r = await extractPrKeywords({
+            tasks: opts.taskGraph.tasks,
+            gitDiff,
+            llm: opts.llm,
+          });
+          if (!r.ok) ctx.stats.llmFallback++;
+          return r.keywords;
+        })();
+      }
+      return _profileKeywords;
     },
   };
 

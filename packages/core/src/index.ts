@@ -39,7 +39,7 @@ export type { FsPort } from "./fs-port.js";
  * 用途：Bitfun 侧打印此值，确认运行时加载的是哪一份 core dist
  * （core 已排除 Vite 预构建，但进程内模块缓存仍需重启 dev server 才更新）。
  */
-export const CORE_BUILD_ID = "p1-save-flush-20260901-6";
+export const CORE_BUILD_ID = "p4-tmp-suffix-20260913-7";
 
 export interface BridgeOptions {
   store?: StoreOptions;

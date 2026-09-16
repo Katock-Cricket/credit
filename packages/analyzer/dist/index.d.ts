@@ -31,5 +31,6 @@ export * from "./shared/rtm.js";
 export * from "./shared/llm-json.js";
 export * from "./shared/uri.js";
 export * from "./shared/spec-quality.js";
+export * from "./profile/index.js";
 export { RULESET, RULESET_VERSION, PR_CREDIT_TREE, calculatorFile, leaves, findNode, walk, } from "@credit/rules";
 export type { RuleNode, RuleSet, MetricStatus, MetricType, OrdinalKey } from "@credit/rules";

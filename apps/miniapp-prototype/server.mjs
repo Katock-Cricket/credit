@@ -31,6 +31,14 @@ import {
   createNullLlmPort,
   createMemoryCache,
   DEFAULT_LLM_CONFIG,
+  // P3 画像层
+  normalizeProfile,
+  isInitialized,
+  ensureKeywordEntries,
+  applyPrResult,
+  initProfileFromGit,
+  syncProfileFromGit,
+  extractPrKeywords,
 } from "@credit/analyzer";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -366,7 +374,9 @@ const prApi = {
     if (!g.ok) return g;
 
     const gitDiff = await gitPort.diff();
-    const fp = inputFingerprint({ behaviors, taskGraph: g.graph, gitDiff });
+    // P3：画像参与指纹 —— 初始化/同步后指纹变，旧缓存（无 Dev_Credit）自动失效
+    const profile = await readProfile();
+    const fp = inputFingerprint({ behaviors, taskGraph: g.graph, gitDiff, profile, prId });
 
     /**
      * 缓存未命中原因 —— **必须透出给 UI**。
@@ -401,6 +411,7 @@ const prApi = {
       gitDiff,
       git: gitPort,
       fs: fsPort,
+      profile,
       llmModel: llmCfg.provider === "openai-compatible" ? llmCfg.openaiCompatible.model : null,
     });
 
@@ -413,6 +424,16 @@ const prApi = {
       console.warn(`[credit] 写 pr_credit 失败：${String(e)}`);
     }
 
+    // P3：结算后自动本地增量更新画像（触发A；best-effort，不影响 credit 返回）
+    if (profile && !force) {
+      try {
+        const up = await profileApi.updateFromPr(prId);
+        console.log(`[credit] profile 增量更新：${up.reason ?? "?"}（keywords=${up.keywords?.length ?? 0}）`);
+      } catch (e) {
+        console.warn(`[credit] profile 增量更新失败（可手动 /api/profile/updateFromPr?prId= 重试）：${String(e?.message ?? e)}`);
+      }
+    }
+
     return { ok: true, result, cached: false, cacheMiss };
   },
 
@@ -420,12 +441,172 @@ const prApi = {
   async rules() {
     return { ok: true, ruleSet: RULESET };
   },
-
   /** 按需拉取指定 Behavior 明细（点击 Task 展开时用，避免全量传输） */
   async behaviors(prId, query) {
     const ids = new Set((query?.get("ids") ?? "").split(",").filter(Boolean));
     const all = await readBehaviors(prId);
     return { ok: true, items: ids.size > 0 ? all.filter((b) => ids.has(b.id)) : all };
+  },
+};
+
+// ─────────────── P3：画像层（Developer Profile，决策 D-033~D-037 / D-305）───────────────
+
+const PROFILE_FILE = path.join(ROOT, "dev_profile.json");
+const DRAFT_FILE = path.join(ROOT, "dev_profile.draft.json");
+
+async function readJsonSafe(file) {
+  try {
+    return JSON.parse(await fsp.readFile(file, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+async function writeJsonAtomic(file, data) {
+  const tmp = `${file}.tmp-${process.pid}`;
+  await fsp.writeFile(tmp, JSON.stringify(data, null, 2), "utf8");
+  await fsp.rename(tmp, file);
+}
+
+async function readProfile() {
+  const p = normalizeProfile(await readJsonSafe(PROFILE_FILE));
+  return p; // null = 未初始化
+}
+
+/** GITHUB_TOKEN 只从环境取（D-035：不落盘、不进日志、不进 prompt） */
+const GH_TOKEN = process.env.GITHUB_TOKEN ?? null;
+/** 注入式 fetch（bypass 纯逻辑可单测，宿主负责真网络） */
+const ghFetchLike = (url, init) => fetch(url, init);
+
+const profileApi = {
+  /** 概览：正式画像 + 草稿 + 初始化状态 */
+  async get() {
+    const profile = await readProfile();
+    const draft = await readJsonSafe(DRAFT_FILE);
+    return {
+      ok: true,
+      initialized: isInitialized(profile),
+      profile,
+      draft: draft ?? null,
+      hasGithubToken: !!GH_TOKEN,
+    };
+  },
+
+  /** F3a 初始化：拉取 + 归纳 → 写草稿（D-036），不落正式文件 */
+  async init(body) {
+    const homeUrl = String(body?.homeUrl ?? "").trim();
+    if (!homeUrl) return { ok: false, error: "缺少 homeUrl" };
+    const llm = await getLlmPort();
+    const out = await initProfileFromGit({ homeUrl, token: GH_TOKEN, fetchLike: ghFetchLike, llm });
+    if (!out.ok) return { ok: false, error: out.error };
+    await writeJsonAtomic(DRAFT_FILE, out.draft);
+    return {
+      ok: true,
+      digestChars: out.digestChars,
+      requests: out.requests,
+      keywords: out.draft.profile.techDomain.keywords.map((k) => `${k.name}(${k.gitCommits})`),
+      gitStats: out.draft.profile.gitStats,
+    };
+  },
+
+  /** 草稿确认：可携编辑后的 profile 覆盖 → 写正式文件、删草稿 */
+  async confirm(body) {
+    const draft = await readJsonSafe(DRAFT_FILE);
+    if (!draft?.profile) return { ok: false, error: "无待确认草稿" };
+    const p = normalizeProfile(body?.profile ?? draft.profile);
+    if (!p) return { ok: false, error: "草稿数据不合法" };
+    if (!isInitialized(p)) return { ok: false, error: "草稿为空画像，拒绝确认" };
+    await writeJsonAtomic(PROFILE_FILE, p);
+    try {
+      await fsp.unlink(DRAFT_FILE);
+    } catch {
+      /* 已不存在 */
+    }
+    return { ok: true, gitUser: p.gitUser, keywords: p.techDomain.keywords.length };
+  },
+
+  /** 放弃草稿 */
+  async discardDraft() {
+    try {
+      await fsp.unlink(DRAFT_FILE);
+      return { ok: true };
+    } catch {
+      return { ok: true, note: "无草稿" };
+    }
+  },
+
+  /** F3b 增量同步（D-037）：游标增量拉取 → 直接合并落盘；失败游标不推进 */
+  async sync() {
+    const profile = await readProfile();
+    if (!profile) return { ok: false, error: "尚未初始化画像" };
+    const llm = await getLlmPort();
+    const out = await syncProfileFromGit({ profile, token: GH_TOKEN, fetchLike: ghFetchLike, llm });
+    if (!out.ok) return { ok: false, error: out.error };
+    await writeJsonAtomic(PROFILE_FILE, out.profile);
+    return {
+      ok: true,
+      changes: out.changes,
+      digestChars: out.digestChars,
+      requests: out.requests,
+      gitStats: out.profile.gitStats,
+    };
+  },
+
+  /** F2 本地增量更新（D-305：与重算解耦，可单独触发调试） */
+  async updateFromPr(prId) {
+    if (!prId) return { ok: false, error: "missing prId" };
+    const profile = await readProfile();
+    if (!profile) return { ok: false, error: "尚未初始化画像" };
+
+    const result = await readJsonSafe(path.join(ROOT, "pr_credit", `${prId}.json`));
+    if (!result) return { ok: false, error: `无 pr_credit 结果：${prId}` };
+
+    // D-306：优先消费计算期共享提取的关键词；旧结果缺失时补提（1 次 LLM）
+    let keywords = result.profileFeed?.profileKeywords ?? null;
+    let keywordSource = "pr_credit.profileFeed";
+    if (!keywords || keywords.length === 0) {
+      const g = await prApi.graph(prId, null);
+      if (!g.ok) return { ok: false, error: `补提关键词需要 TaskGraph：${g.error}` };
+      const llm = await getLlmPort();
+      const r = await extractPrKeywords({ tasks: g.graph.tasks, gitDiff: await gitPort.diff(), llm });
+      keywords = r.keywords;
+      keywordSource = `补提（${r.ok ? "LLM" : "规则降级"}）`;
+    }
+
+    const out = applyPrResult(profile, {
+      prId,
+      ts: result.generatedAt ?? Date.now(),
+      repo: WORKSPACE_DIR ? path.basename(WORKSPACE_DIR) : undefined,
+      prCredit: result.summary?.prCredit ?? 0,
+      creditFingerprint: result.generator?.inputFingerprint,
+      feed: { profileKeywords: keywords, aiCollabLines: result.profileFeed?.aiCollabLines ?? 0 },
+      keywords,
+    });
+
+    if (out.changed) await writeJsonAtomic(PROFILE_FILE, out.profile);
+    return {
+      ok: true,
+      reason: out.reason,
+      changed: out.changed,
+      keywordSource,
+      keywords,
+      aiCollabLines: result.profileFeed?.aiCollabLines ?? 0,
+    };
+  },
+
+  /** 手动编辑：增删关键词（其余字段只能走初始化/同步/本地增量） */
+  async edit(body) {
+    const profile = await readProfile();
+    if (!profile) return { ok: false, error: "尚未初始化画像" };
+    const add = Array.isArray(body?.addKeywords) ? body.addKeywords : [];
+    const remove = new Set((Array.isArray(body?.removeKeywords) ? body.removeKeywords : []).map((s) => String(s).toLowerCase()));
+    if (add.length === 0 && remove.size === 0) return { ok: false, error: "无编辑内容" };
+
+    ensureKeywordEntries(profile, add, "local");
+    profile.techDomain.keywords = profile.techDomain.keywords.filter((k) => !remove.has(k.name.toLowerCase()));
+    profile.updatedAt = new Date().toISOString();
+    await writeJsonAtomic(PROFILE_FILE, profile);
+    return { ok: true, keywords: profile.techDomain.keywords.length };
   },
 };
 
@@ -458,6 +639,29 @@ const server = http.createServer(async (req, res) => {
     // P2：指标树结构（UI 渲染顺序与 i18n 名）
     if (pathname === "/api/rules/tree") {
       return json(res, 200, await prApi.rules());
+    }
+
+    // P3：画像层 API —— /api/profile/<action>（GET 读，POST 带操作）
+    if (pathname.startsWith("/api/profile/")) {
+      const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+      const action = pathname.replace("/api/profile/", "").split("/")[0];
+      let body = {};
+      if (req.method === "POST") {
+        const chunks = [];
+        for await (const c of req) chunks.push(c);
+        try {
+          body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+        } catch {
+          return json(res, 400, { ok: false, error: "invalid json body" });
+        }
+      }
+      const fn = profileApi[action];
+      if (typeof fn !== "function") {
+        return json(res, 404, { ok: false, error: `unknown profile action: ${action}` });
+      }
+      // updateFromPr 支持 GET query ?prId=
+      const out = await fn(action === "updateFromPr" ? body.prId ?? url.searchParams.get("prId") : body);
+      return json(res, out?.ok === false ? 400 : 200, out);
     }
 
     // P2-pre：过程建模 API —— /api/pr/<prId>/graph | /behaviors | /credit，列表为 /api/pr/list

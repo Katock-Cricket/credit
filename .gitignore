@@ -9,3 +9,5 @@
 /packages/rules/node_modules
 /packages/rules/dist
 /packages/analyzer/node_modules
+.bitfun/
+/.bitfun/search/flashgrep-index/

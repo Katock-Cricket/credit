@@ -1,6 +1,15 @@
 /**
  * 光标游走 NC（算法 §3.3.5③）：光标停留过的核心新增行 / 全部核心新增行。
  * 停留判定 = dwell ≥ `readDwellMs`(500ms)，复用 C4 的 `cursorLines`。
+ *
+ * **⚠️ 本指标已于 2026-09-09 退出 CREDIT 分数框架（决策 D-035）** ——
+ * `rules/src/tree.ts` 中不再注册该节点，故**不会被计算、不参与分数聚合**。
+ * 实现在此**刻意保留**（决策要求"数据层保留收集"）：
+ * `selectionChanged` / `cursor` 事件采集与 `ReadingTraceIndex` 行级停留索引**全部不动**，
+ * 本函数仍可用于离线分析；恢复计分只需在规则树加回 `gen.verify.cursorNc` leaf。
+ *
+ * 退出原因（B-014 实测）：P1 采集的 `cursor` 事件仅 **4 条**且 `dwellMs` 全为 0
+ * （采集层限制，非计算问题）→ 该指标**恒为 0**，不具备判别力。
  */
 import type { RuleNode } from "@credit/rules";
 import type { MetricContext } from "../credit/context.js";

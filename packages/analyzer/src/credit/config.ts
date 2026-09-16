@@ -31,6 +31,18 @@ export interface CreditConfig {
   };
   manualTest: { tailWindowRatio: number; minPrompts: number };
   decisionAttribution: { minDecisions: number };
+  /**
+   * Dev_Credit 计分参数（P3，SPEC P3 §8）。
+   * **单轨口径（D-043）**：熟练度只看**行数** —— git 来源为该用户 commit 的 diff 增量行数
+   * （自有/组织/他人仓），未同步 git 时退到本地 PR 的 AI 协作行数。
+   * `scale: "log"` 为默认：git 行数量级可达数十万（实测单账号 ~73 万行），
+   * 线性归一几乎人人满分、丧失判别力，故取对数标定。
+   */
+  profile: {
+    proficiency: { scale: "log" | "linear"; fullMarkLines: number };
+    collabTiers: [number, number, number];
+    recentN: number;
+  };
   ordinal: { threeTier: number[]; reviewRounds: number[]; collabLinesTier: number[] };
   degraded: { conservativeScore: number };
 }
@@ -76,6 +88,12 @@ export const DEFAULT_CREDIT_CONFIG: CreditConfig = {
   },
   manualTest: { tailWindowRatio: 0.25, minPrompts: 10 },
   decisionAttribution: { minDecisions: 3 },
+  profile: {
+    // log：score = 100 × log10(1+L) / log10(1+500000) —— 1k≈53、10k≈70、10万≈88、50万=100
+    proficiency: { scale: "log", fullMarkLines: 500_000 },
+    collabTiers: [1_000, 10_000, 50_000],
+    recentN: 10,
+  },
   ordinal: { threeTier: [0, 50, 100], reviewRounds: [0, 60, 80, 100], collabLinesTier: [10, 40, 70, 100] },
   degraded: { conservativeScore: 50 },
 };
@@ -99,6 +117,7 @@ export function mergeCreditConfig(over?: Partial<CreditConfig>): CreditConfig {
       ...DEFAULT_CREDIT_CONFIG.decisionAttribution,
       ...over.decisionAttribution,
     },
+    profile: { ...DEFAULT_CREDIT_CONFIG.profile, ...over.profile },
     degraded: { ...DEFAULT_CREDIT_CONFIG.degraded, ...over.degraded },
   };
 }

@@ -1,6 +1,9 @@
 {
   "name": "@credit/miniapp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
-  "type": "module"
+  "description": "CREDIT MiniApp —— source/ 为交付物（ui.js / worker.js 由构建生成），ui/ 与 worker/ 为构建输入",
+  "scripts": {
+    "build": "node build.mjs"
+  }
 }

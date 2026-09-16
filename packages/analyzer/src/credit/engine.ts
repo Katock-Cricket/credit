@@ -68,8 +68,10 @@ async function prerequisiteMet(
         : { met: false, detail: "无核心新增行，整组不适用" };
     }
     case "devProfile":
-      // P2：profile 恒 null（决策 D-028/D-032），本组恒不适用
-      return { met: false, detail: "Dev_Profile 未接入（P3），整组不适用" };
+      // P3（D-028 → 激活）：profile 已初始化才计分 Dev_Credit
+      return ctx.profile
+        ? { met: true, detail: `Dev_Profile 已初始化（keywords=${ctx.profile.techDomain.keywords.length}，tasks=${ctx.profile.historyTasks.length}）` }
+        : { met: false, detail: "Dev_Profile 未初始化，Dev_Credit 整组不适用（可在 Developer Profile 页初始化）" };
     default:
       return { met: true, detail: "" };
   }

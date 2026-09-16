@@ -175,10 +175,18 @@ const genGroup: RuleNode = {
           type: "percent",
           requires: ["coreDiff"],
         }),
-        leaf("gen.verify.cursorNc", "光标游走 NC", "Cursor Walk (NC)", "L5", {
-          type: "percent",
-          requires: ["coreDiff", "reading"],
-        }),
+        /**
+         * ~~`gen.verify.cursorNc` 光标游走 NC~~ —— **已退出 CREDIT 分数框架（2026-09-09，D-035）**。
+         *
+         * 原因（B-014 实测）：P1 采集的 `cursor` 事件仅 **4 条**且 `dwellMs` 全为 0
+         * （采集层限制，非计算问题）→ 该指标**恒为 0**，不具备判别力。
+         * 与 `gen.acceptLines`（D-033）同理：数据不足的指标硬算只会稀释总分。
+         *
+         * **数据层保留**：`selectionChanged` / `cursor` 事件采集、`ReadingTraceIndex`
+         * 的行级停留索引、以及 `gen-verify-cursor-nc.ts` 计算实现**全部保留**（不删），
+         * 仅供离线分析/未来复用；此处只是**不注册**，故不参与分数聚合。
+         * 恢复只需把 leaf 加回来。
+         */
       ],
     },
   ],

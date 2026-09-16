@@ -134,6 +134,12 @@ export interface CreditResult {
     inputFingerprint: string;
   };
   tree: ResultNode;
+  /**
+   * P3 本地增量更新的数据源（D-041/D-042）：
+   * `profileKeywords` 由熟练度计分共享提取（profile 未初始化时为 null）；
+   * `aiCollabLines` = coreDiff.aiLines 总行数。
+   */
+  profileFeed?: { profileKeywords: string[] | null; aiCollabLines: number };
   summary: {
     prCredit: number;
     procCredits: number;

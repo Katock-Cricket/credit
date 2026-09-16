@@ -39,6 +39,10 @@ import { manualBoundary } from "./manual-boundary.js";
 import { reviewDecision } from "./review-decision.js";
 import { reviewRounds } from "./review-rounds.js";
 import { reviewDisposition } from "./review-disposition.js";
+import { devCreditProfileProficiency } from "./dev-credit-profile-proficiency.js";
+import { devCreditProfileCollabLines } from "./dev-credit-profile-collab-lines.js";
+import { devCreditHistorySuccessRate } from "./dev-credit-history-success-rate.js";
+import { devCreditHistoryRecentAvg } from "./dev-credit-history-recent-avg.js";
 import { toolProxy } from "./tool-proxy.js";
 
 export const CALCULATORS: Record<string, Calculator> = {
@@ -63,6 +67,7 @@ export const CALCULATORS: Record<string, Calculator> = {
   "gen-alignment": genAlignment,
   "gen-verify-read-pr": genVerifyReadPr,
   "gen-verify-edit-pe": genVerifyEditPe,
+  // 仍保留映射：该指标已退出分数框架（规则树不注册），但实现保留供离线分析/未来复用
   "gen-verify-cursor-nc": genVerifyCursorNc,
   "test-dev-trigger": testDevTrigger,
   "test-pass-rate": testPassRate,
@@ -75,5 +80,10 @@ export const CALCULATORS: Record<string, Calculator> = {
   "review-decision": reviewDecision,
   "review-rounds": reviewRounds,
   "review-disposition": reviewDisposition,
+  // P3：Dev_Credit 四叶子（前置 devProfile 在引擎激活）
+  "dev-credit-profile-proficiency": devCreditProfileProficiency,
+  "dev-credit-profile-collab-lines": devCreditProfileCollabLines,
+  "dev-credit-history-success-rate": devCreditHistorySuccessRate,
+  "dev-credit-history-recent-avg": devCreditHistoryRecentAvg,
   "tool-proxy": toolProxy,
 };

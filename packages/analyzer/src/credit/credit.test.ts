@@ -18,6 +18,7 @@ import { aggregateGroup, aggregateRoot, bandOf } from "./aggregate.js";
 import { createContext } from "./context.js";
 import { genStaged } from "../metrics/gen-staged.js";
 import { genAcceptLines } from "../metrics/gen-accept-lines.js";
+import { genVerifyCursorNc } from "../metrics/gen-verify-cursor-nc.js";
 import { computeCredit, inputFingerprint } from "./compute.js";
 import { buildReadingTrace, traceOf } from "../shared/reading.js";
 import { normUri, resolveGitUri } from "../shared/uri.js";
@@ -603,12 +604,22 @@ describe("大型修改分阶段施行（改版）", () => {
   });
 });
 
-describe("单次Accept行数已退出 CREDIT 分数框架", () => {
-  it("规则树不再注册 gen.acceptLines → 不参与分数聚合", () => {
-    expect(leaves(PR_CREDIT_TREE).some((l) => l.id === "gen.acceptLines")).toBe(false);
-  });
+/**
+ * 「退出计分」= **规则树不注册**（不参与聚合）+ **实现保留**（数据层不删）。
+ * 这两条必须同时断言：只测前者，可能有人把实现删了；只测后者，可能有人误加回规则树。
+ */
+describe("已退出 CREDIT 分数框架的指标（数据层保留、不再计分）", () => {
+  const retired = [
+    { id: "gen.acceptLines", fn: genAcceptLines, why: "D-033：真实 userAccept 未触发，恒 degraded" },
+    { id: "gen.verify.cursorNc", fn: genVerifyCursorNc, why: "D-035：cursor 事件仅 4 条且 dwell 全 0，恒为 0" },
+  ];
 
-  it("但计算实现仍保留（数据层不删，可离线复用）", () => {
-    expect(typeof genAcceptLines).toBe("function");
-  });
+  for (const { id, fn, why } of retired) {
+    it(`${id} 不再注册到规则树（${why}）`, () => {
+      expect(leaves(PR_CREDIT_TREE).some((l) => l.id === id)).toBe(false);
+    });
+    it(`${id} 计算实现仍保留，可离线复用`, () => {
+      expect(typeof fn).toBe("function");
+    });
+  }
 });

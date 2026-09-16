@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CREDIT</title>
+    <!--
+      注意：**不要**在这里写 <link rel="stylesheet"> / <script src="ui.js">。
+      Bitfun 编译 MiniApp 时会把 source/style.css 内联为 <style>、source/ui.js 内联为
+      <script type="module">；若此处再引用一次，ui.js 会被执行两遍（事件重复绑定），
+      且两个引用都会 404。原型调试宿主由 server.mjs 负责注入这两个标签。
+    -->
+  </head>
+  <body>
+    <div id="app">
+      <header class="header">
+        <div>
+          <h1 data-i18n="appTitle">CREDIT</h1>
+          <div class="sub" data-i18n="appSub">Developer-AI 交互可信度</div>
+        </div>
+        <!-- 语言/主题由宿主事件驱动；原型宿主下这两个按钮用于手动切换验证 -->
+        <div class="row" id="header-actions" style="flex: none">
+          <button id="btn-theme" style="flex: none; min-width: 64px" title="light / dark">
+            Dark
+          </button>
+          <button id="btn-locale" style="flex: none; min-width: 48px" title="zh-CN / en-US">
+            EN
+          </button>
+        </div>
+      </header>
+
+      <nav class="tabs" role="tablist">
+        <button class="tab" role="tab" data-tab="control" aria-selected="true">
+          <span data-i18n="tabControl">Control</span>
+        </button>
+        <button class="tab" role="tab" data-tab="history" aria-selected="false">
+          <span data-i18n="tabHistory">History PRs</span>
+        </button>
+        <button class="tab" role="tab" data-tab="profile" aria-selected="false">
+          <span data-i18n="tabProfile">Developer Profile</span>
+        </button>
+      </nav>
+
+      <!-- ═══════════ Control Tab（内含 home / result / evidence / commit 四视图） ═══════════ -->
+      <section id="view-control" class="view" role="tabpanel">
+        <!-- ── home：会话状态与主操作 ── -->
+        <section id="ctl-view-home" class="ctl-view">
+          <div id="ctl-banner" class="banner"></div>
+
+          <div class="panel">
+            <div class="row">
+              <button id="btn-start" class="primary" data-i18n="btnStartPr">开始 PR</button>
+              <button id="btn-finish" data-i18n="btnFinishCompute">结束开发并计算</button>
+              <button id="btn-reset" class="danger" data-i18n="btnReset">放弃本轮记录</button>
+              <button id="btn-refresh" data-i18n="btnRefresh">刷新状态</button>
+            </div>
+            <div class="msg" id="ctl-msg"></div>
+          </div>
+
+          <div class="panel">
+            <dl class="kv">
+              <dt data-i18n="lblState">状态</dt>
+              <dd><span id="ctl-state" class="state idle">-</span></dd>
+              <dt data-i18n="lblPrId">prId</dt>
+              <dd><code id="ctl-prid">-</code></dd>
+              <dt data-i18n="lblSeq">行为序号</dt>
+              <dd id="ctl-seq">0</dd>
+              <dt data-i18n="lblCounts">事件计数</dt>
+              <dd id="ctl-counts">-</dd>
+              <dt data-i18n="lblDir">数据目录</dt>
+              <dd><code id="ctl-dirs">-</code></dd>
+            </dl>
+          </div>
+
+          <!-- 计算进度（仅 computing 时可见；不阻塞 UI） -->
+          <div class="panel" id="ctl-progress-panel" hidden>
+            <h2 data-i18n="lblComputing">正在计算</h2>
+            <div class="progress"><div id="ctl-progress-bar" class="progress-fill"></div></div>
+            <div class="hint" id="ctl-progress-text"></div>
+          </div>
+
+          <!-- Dev_Credit 概览（P3） -->
+          <div class="panel">
+            <h2 data-i18n="lblDevOverview">Dev_Credit 概览</h2>
+            <div id="ctl-devc" class="devc"></div>
+          </div>
+
+          <div class="panel">
+            <div class="row">
+              <button id="btn-view-result" data-i18n="btnViewResult">查看上次结果</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ── result：总分、四档定位、指标树 ── -->
+        <section id="ctl-view-result" class="ctl-view" hidden>
+          <div class="panel">
+            <div class="row" style="justify-content: space-between; align-items: baseline">
+              <h2 data-i18n="lblResult">本轮 PR_Credit</h2>
+              <div class="row" style="flex: none">
+                <button id="btn-to-evidence" data-i18n="btnEvidence">查看证据</button>
+                <button id="btn-to-commit" class="primary" data-i18n="btnToCommit">去提交</button>
+                <button id="btn-back-home" data-i18n="btnBack">返回</button>
+              </div>
+            </div>
+            <div id="ctl-score" class="credit-summary" hidden></div>
+            <div id="ctl-tree" class="credit-tree"></div>
+            <div id="ctl-tree-hint" class="hint" hidden></div>
+            <div class="row">
+              <button id="btn-recompute-credit" data-i18n="btnRecomputeCredit">重新计算</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ── evidence：证据抽屉（结果视图之上叠加） ── -->
+        <section id="ctl-view-evidence" class="detail" hidden></section>
+
+        <!-- ── commit：DIFF 勾选 + 结构化 msg + WARNING（M6） ── -->
+        <section id="ctl-view-commit" class="ctl-view" hidden>
+          <div id="commit-warning" class="banner warn" hidden></div>
+
+          <div class="panel">
+            <div class="row" style="justify-content: space-between; align-items: baseline">
+              <h2 data-i18n="lblCommitFiles">提交文件</h2>
+              <div class="row" style="flex: none">
+                <button id="commit-select-all" data-i18n="btnSelectAll">全选</button>
+                <button id="commit-select-none" data-i18n="btnSelectNone">全不选</button>
+                <button id="btn-back-result" data-i18n="btnBack">返回</button>
+              </div>
+            </div>
+            <div id="commit-files" class="commit-files"></div>
+            <div class="hint" data-i18n="hintCommitFiles">
+              默认全选；取消勾选的文件不进入本次提交。
+            </div>
+          </div>
+
+          <div class="panel">
+            <h2 data-i18n="lblCommitMsg">Commit 说明</h2>
+            <input id="commit-subject" type="text" data-i18n-ph="phCommitSubject"
+              placeholder="一句话描述本次改动" />
+            <textarea id="commit-msg" rows="6" spellcheck="false"></textarea>
+            <div class="hint" data-i18n="hintCommitMsg">
+              CREDIT 行由工具自动生成并追加；可编辑最终提交内容。
+            </div>
+            <div class="row">
+              <button id="btn-commit" class="primary" data-i18n="btnCommit">确认提交</button>
+              <button id="btn-push" data-i18n="btnPush">推送</button>
+              <button id="btn-copy-msg" data-i18n="btnCopyMsg">复制</button>
+            </div>
+            <div class="msg" id="commit-msg-status"></div>
+          </div>
+        </section>
+      </section>
+
+      <!-- ═══════════ History PRs Tab ═══════════ -->
+      <section id="view-history" class="view" role="tabpanel" hidden>
+        <div class="history">
+          <aside>
+            <div class="panel">
+              <h2 data-i18n="lblPrList">历史 PR</h2>
+              <div id="pr-list" class="pr-list"></div>
+            </div>
+          </aside>
+
+          <main class="gantt-wrap">
+            <div class="panel">
+              <h2 data-i18n="lblTimeline">过程时间线</h2>
+              <div id="gantt-host"></div>
+              <div class="hint" data-i18n="hintClickTask">
+                点击 Task 块查看详情；色深为人工主导，色浅为 AI 主导。
+              </div>
+              <div id="model-hint" class="hint" hidden></div>
+              <div class="row" style="margin-top: 12px">
+                <button id="recompute" data-i18n="btnRecompute" style="flex: none; min-width: 140px" hidden>
+                  重新计算（忽略缓存）
+                </button>
+              </div>
+            </div>
+
+            <div class="panel">
+              <h2 data-i18n="lblAnalytics">过程分析</h2>
+              <div id="analytics" class="analytics"></div>
+            </div>
+
+            <div class="panel">
+              <div class="row" style="justify-content: space-between; align-items: baseline">
+                <h2 data-i18n="lblCreditTree">PR_Credit 指标树</h2>
+                <button id="credit-recompute" data-i18n="btnRecomputeCredit" style="flex: none; min-width: 120px" hidden>
+                  重新计算
+                </button>
+              </div>
+              <div id="credit-summary" class="credit-summary" hidden></div>
+              <div id="credit-tree" class="credit-tree"></div>
+              <div id="credit-hint" class="hint" hidden></div>
+            </div>
+
+            <div id="detail" class="detail" hidden></div>
+          </main>
+        </div>
+      </section>
+
+      <!-- ═══════════ Developer Profile Tab ═══════════ -->
+      <section id="view-profile" class="view" role="tabpanel" hidden>
+        <div class="panel">
+          <h2 data-i18n="lblProfileStatus">画像状态</h2>
+          <dl class="kv">
+            <dt data-i18n="lblInitState">初始化</dt>
+            <dd><span id="pf-state" class="state idle">-</span></dd>
+            <dt data-i18n="lblGitUser">git 用户</dt>
+            <dd><code id="pf-gituser">-</code></dd>
+            <dt data-i18n="lblPrStats">git 统计</dt>
+            <dd id="pf-prstats">-</dd>
+            <dt data-i18n="lblUpdatedAt">最近更新</dt>
+            <dd id="pf-updated">-</dd>
+          </dl>
+        </div>
+
+        <div class="panel">
+          <h2 data-i18n="lblProfileOps">操作</h2>
+          <div class="row">
+            <input id="pf-home-url" type="text" placeholder="https://github.com/&lt;user&gt;"
+              style="flex: 1; min-width: 200px; min-height: 32px" />
+            <button id="pf-init" class="primary" data-i18n="btnProfileInit">git 初始化</button>
+          </div>
+          <div class="row">
+            <button id="pf-sync" data-i18n="btnProfileSync">增量同步 git</button>
+            <input id="pf-pr-id" type="text" placeholder="pr-2026..." style="flex: 1; min-width: 160px; min-height: 32px" />
+            <button id="pf-update-pr" data-i18n="btnProfileUpdatePr">从本地 PR 增量更新</button>
+            <button id="pf-refresh" data-i18n="btnRefresh">刷新</button>
+          </div>
+          <div class="hint" data-i18n="hintProfileInit">
+            未初始化时填入 git 主页地址发起初始化；已初始化可用增量同步。初始化需草稿确认后计分。
+          </div>
+          <div class="msg" id="pf-msg"></div>
+        </div>
+
+        <div class="panel" id="pf-draft-panel" hidden>
+          <h2 data-i18n="lblDraft">初始化草稿（确认前不计分）</h2>
+          <div id="pf-draft-body"></div>
+          <div class="row">
+            <button id="pf-confirm" class="primary" data-i18n="btnConfirmDraft">确认并落盘</button>
+            <button id="pf-discard" class="danger" data-i18n="btnDiscardDraft">放弃草稿</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2 data-i18n="lblTechDomain">主领域关键词</h2>
+          <div id="pf-keywords"></div>
+        </div>
+
+        <div class="panel">
+          <h2 data-i18n="lblHistoryTasks">本地历史 PR</h2>
+          <div id="pf-tasks"></div>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>
+

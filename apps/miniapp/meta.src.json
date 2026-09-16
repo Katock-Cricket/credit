@@ -1,0 +1,45 @@
+{
+  "id": "credit",
+  "name": "CREDIT",
+  "description": "量化「使用 AI 完成一次 PR 的可信度」：采集 Dev/AI 交互过程，计算 0–100 的 PR_Credit（四档画像），并在提交前生成结构化 commit msg。",
+  "icon": "Workflow",
+  "category": "developer",
+  "tags": ["AI", "代码评审", "可信度", "过程分析", "开发"],
+  "version": 1,
+  "runtime_profile": "compatibility",
+  "permissions": {
+    "fs": {
+      "read": ["{workspace}", "{home}/.bitfun/credit"],
+      "write": ["{home}/.bitfun/credit"]
+    },
+    "shell": {
+      "allow": ["git"]
+    },
+    "ai": {
+      "enabled": true,
+      "allowed_models": ["primary", "fast"],
+      "max_tokens_per_request": 8192
+    },
+    "net": {
+      "allow": ["api.github.com", "github.com"]
+    },
+    "node": {
+      "enabled": true,
+      "timeout_ms": 180000
+    }
+  },
+  "i18n": {
+    "locales": {
+      "zh-CN": {
+        "name": "CREDIT",
+        "description": "量化「使用 AI 完成一次 PR 的可信度」：采集 Dev/AI 交互过程，计算 0–100 的 PR_Credit（四档画像），并在提交前生成结构化 commit msg。",
+        "tags": ["AI", "代码评审", "可信度", "过程分析", "开发"]
+      },
+      "en-US": {
+        "name": "CREDIT",
+        "description": "Quantifies how reliably a developer works with AI on a pull request: collects Dev/AI interactions, computes PR_Credit (0–100, four bands), and drafts a structured commit message before you commit.",
+        "tags": ["AI", "code review", "reliability", "process", "developer"]
+      }
+    }
+  }
+}

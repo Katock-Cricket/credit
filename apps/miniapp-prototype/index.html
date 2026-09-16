@@ -38,6 +38,9 @@
         <button class="tab" role="tab" data-tab="history" aria-selected="false">
           <span data-i18n="tabHistory">History PRs</span>
         </button>
+        <button class="tab" role="tab" data-tab="profile" aria-selected="false">
+          <span data-i18n="tabProfile">Developer Profile</span>
+        </button>
       </nav>
 
       <!-- ── Control Tab（P1 原样保留） ── -->
@@ -140,6 +143,71 @@
 
             <div id="detail" class="detail" hidden></div>
           </main>
+        </div>
+      </section>
+      <!-- ── Developer Profile Tab（P3 新增） ── -->
+      <section id="view-profile" class="view" role="tabpanel" hidden>
+        <div class="panel">
+          <h2 data-i18n="lblProfileStatus">画像状态</h2>
+          <dl class="kv">
+            <dt data-i18n="lblInitState">初始化</dt>
+            <dd><span id="pf-state" class="state idle">-</span></dd>
+            <dt data-i18n="lblGitUser">git 用户</dt>
+            <dd><code id="pf-gituser">-</code></dd>
+            <dt data-i18n="lblPrStats">git PR 统计</dt>
+            <dd id="pf-prstats">-</dd>
+            <dt data-i18n="lblUpdatedAt">最近更新</dt>
+            <dd id="pf-updated">-</dd>
+          </dl>
+        </div>
+
+        <div class="panel">
+          <h2 data-i18n="lblProfileOps">操作</h2>
+          <div class="row">
+            <input
+              id="pf-home-url"
+              type="text"
+              placeholder="https://github.com/&lt;user&gt;"
+              style="flex: 1; min-width: 200px; min-height: 32px"
+            />
+            <button id="pf-init" class="primary" data-i18n="btnProfileInit">
+              git 初始化
+            </button>
+          </div>
+          <div class="row">
+            <button id="pf-sync" data-i18n="btnProfileSync">增量同步 git</button>
+            <button id="pf-update-pr" data-i18n="btnProfileUpdatePr">
+              从本地 PR 增量更新
+            </button>
+            <button id="pf-refresh" data-i18n="btnRefresh">刷新</button>
+          </div>
+          <div class="hint" data-i18n="hintProfileInit">
+            未初始化时填入 git 主页地址发起初始化；已初始化可用增量同步。初始化需草稿确认后计分。
+          </div>
+          <div class="msg" id="pf-msg"></div>
+        </div>
+
+        <div class="panel" id="pf-draft-panel" hidden>
+          <h2 data-i18n="lblDraft">初始化草稿（确认前不计分）</h2>
+          <div id="pf-draft-body"></div>
+          <div class="row">
+            <button id="pf-confirm" class="primary" data-i18n="btnConfirmDraft">
+              确认并落盘
+            </button>
+            <button id="pf-discard" class="danger" data-i18n="btnDiscardDraft">
+              放弃草稿
+            </button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2 data-i18n="lblTechDomain">主领域关键词（双轨）</h2>
+          <div id="pf-keywords"></div>
+        </div>
+
+        <div class="panel">
+          <h2 data-i18n="lblHistoryTasks">本地历史 PR</h2>
+          <div id="pf-tasks"></div>
         </div>
       </section>
     </div>
